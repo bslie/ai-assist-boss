@@ -311,6 +311,9 @@ describe.skipIf(!dbUp)("обучение на правках (Postgres)", () => 
       expect(system).not.toContain("Ждёт подтверждения.");
       expect(system).not.toContain("Чужое правило.");
       expect(String(draft).endsWith(`ИИ-помощник ${leaderName}`)).toBe(true);
+      // выученные правила не отменяют запрет выдумывать даты, суммы и факты
+      expect(system).toContain("Не придумывай даты, суммы, имена и факты");
+      expect(system.indexOf("Не придумывай даты")).toBeLessThan(system.indexOf("Пиши коротко."));
     });
 
     it("кэш по треду и набору правил: то же — один вызов, новое правило — новый черновик", async () => {
