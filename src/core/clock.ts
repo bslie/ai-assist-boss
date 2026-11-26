@@ -129,5 +129,19 @@ export function createClockFromEnv(env: NodeJS.ProcessEnv = process.env): Clock 
 }
 
 /** Процессный синглтон. Вызовите `await clock.init()` при старте web/worker. */
-const globalForClock = globalThis as unknown as { __clock?: Clock };
+const globalForClock = globalThis as unknown as { __clock?: Clock; __clockInit?: Promise<void> };
 export const clock: Clock = (globalForClock.__clock ??= createClockFromEnv());
+
+/**
+ * Для обработчиков запросов: однократный `init()` на процесс и `sync()` на каждый вызов,
+ * чтобы подтянуть перемотку, сделанную другим процессом (web ↔ worker).
+ */
+export async function readyClock(): Promise<Clock> {
+  globalForClock.__clockInit ??= clock.init().catch((e) => {
+    globalForClock.__clockInit = undefined; // дать шанс повторить, если Redis был недоступен
+    throw e;
+  });
+  await globalForClock.__clockInit;
+  await clock.sync();
+  return clock;
+}

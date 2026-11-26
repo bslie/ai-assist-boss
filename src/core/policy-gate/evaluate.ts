@@ -15,6 +15,10 @@ import {
 export const PROTECTED_CATEGORIES = ["HR", "MANAGEMENT", "CLIENT_COMMITMENT"] as const;
 export const CONFIDENCE_THRESHOLD = 0.7;
 
+/** Категории, которые правилом нельзя перевести в авто: защищённые + деньги (порог решает Gate). */
+export const isLockedCategory = (c: string): boolean =>
+  (PROTECTED_CATEGORIES as readonly string[]).includes(c) || c === "MONEY";
+
 export const ToolPermissionSchema = z.enum(["AUTO", "APPROVE", "DENY"]);
 export type ToolPermission = z.infer<typeof ToolPermissionSchema>;
 

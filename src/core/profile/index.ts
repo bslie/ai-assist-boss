@@ -8,7 +8,7 @@ import { z } from "zod";
 import type { Prisma, PrismaClient } from "@/generated/prisma/client";
 import { EMAIL_ACTIONS, EMAIL_CATEGORIES } from "../email-triage/classify";
 import type { LlmClient } from "../llm";
-import { PROTECTED_CATEGORIES } from "../policy-gate";
+import { isLockedCategory } from "../policy-gate";
 
 const Category = z.enum(EMAIL_CATEGORIES);
 
@@ -41,8 +41,6 @@ export const ProfileDraftSchema = z.object({
 });
 export type ProfileDraft = z.infer<typeof ProfileDraftSchema>;
 
-const isProtected = (c: string) => (PROTECTED_CATEGORIES as readonly string[]).includes(c) || c === "MONEY";
-
 export interface ProfileWarning {
   rule: string;
   message: string;
@@ -52,7 +50,7 @@ export interface ProfileWarning {
 export function sanitizeDraft(draft: ProfileDraft): { draft: ProfileDraft; warnings: ProfileWarning[] } {
   const warnings: ProfileWarning[] = [];
   const allowed = draft.allowed.filter((r) => {
-    if (isProtected(r.category) && r.action !== "ASK_LEADER") {
+    if (isLockedCategory(r.category) && r.action !== "ASK_LEADER") {
       warnings.push({ rule: r.name, message: `Категория ${r.category} защищена: правило отброшено` });
       return false;
     }

@@ -41,3 +41,19 @@ export function createLlmClientFromEnv(
 ): LlmClient {
   return new LlmClient({ provider: createProviderFromEnv(env), ...extra });
 }
+
+/**
+ * Живая модель (LLM_BASE_URL + LLM_MODEL) или повтор из кэша без сети (только LLM_MODEL).
+ * В режиме повтора промах кэша — явная ошибка. Ключ кэша включает провайдера и модель.
+ */
+export function createProviderOrReplay(env: NodeJS.ProcessEnv = process.env): LlmProvider {
+  if (env.LLM_BASE_URL && env.LLM_MODEL) return createProviderFromEnv(env);
+  if (!env.LLM_MODEL) throw new Error("LLM_MODEL is not set");
+  return {
+    name: env.LLM_PROVIDER_NAME ?? "openai-compatible",
+    model: env.LLM_MODEL,
+    async generate(): Promise<never> {
+      throw new Error("Нет ответа в кэше LLM, а LLM_BASE_URL не задан");
+    },
+  };
+}

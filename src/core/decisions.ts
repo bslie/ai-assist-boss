@@ -1,0 +1,85 @@
+/**
+ * Разрешение карточки решения руководителем (POST /api/decisions/[id]/resolve).
+ *
+ * Здесь фиксируется только РЕШЕНИЕ руководителя. Исполнение `proposedPayload` (отправка письма,
+ * создание встречи) во внешних системах пойдёт отдельным шагом через Policy Gate, когда появятся
+ * коннекторы: сегодня внешнего эффекта нет, поэтому метка `executed: false` в ActivityLog.
+ */
+import { z } from "zod";
+import type { PrismaClient } from "@/generated/prisma/client";
+import { readyClock } from "./clock";
+import { publishEvent } from "./events";
+
+export const ResolveSchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("APPROVE") }),
+  z.object({ action: z.literal("EDITED_APPROVED"), editedText: z.string().min(1) }),
+  z.object({ action: z.literal("DELEGATE"), delegateToId: z.string().min(1) }),
+  z.object({ action: z.literal("REJECTED") }),
+  z.object({ action: z.literal("SNOOZE") }),
+]);
+export type ResolveInput = z.infer<typeof ResolveSchema>;
+
+const STATUS = {
+  APPROVE: "APPROVED",
+  EDITED_APPROVED: "EDITED_APPROVED",
+  DELEGATE: "DELEGATED",
+  REJECTED: "REJECTED",
+  SNOOZE: "SNOOZED",
+} as const;
+
+export type ResolveResult =
+  | { ok: true; status: string }
+  | { ok: false; code: "NOT_FOUND" | "ALREADY_RESOLVED" | "BAD_DELEGATE"; message: string };
+
+export async function resolveDecision(
+  db: PrismaClient,
+  leaderId: string,
+  decisionId: string,
+  input: ResolveInput,
+  savedMinutesForApproval = 6, // «Черновик ответа, утверждённый без правок» (SPEC 7.3)
+): Promise<ResolveResult> {
+  const clk = await readyClock();
+  const decision = await db.decision.findFirst({ where: { id: decisionId, leaderId } });
+  if (!decision) return { ok: false, code: "NOT_FOUND", message: "Карточка не найдена" };
+  if (decision.status !== "PENDING") {
+    return { ok: false, code: "ALREADY_RESOLVED", message: `Карточка уже обработана: ${decision.status}` };
+  }
+
+  if (input.action === "DELEGATE") {
+    const assignee = await db.employee.findFirst({ where: { id: input.delegateToId, leaderId } });
+    if (!assignee) return { ok: false, code: "BAD_DELEGATE", message: "Исполнитель не найден у этого руководителя" };
+  }
+
+  const status = STATUS[input.action];
+  // Условный апдейт: двойной клик/гонка не разрешит карточку дважды.
+  const upd = await db.decision.updateMany({
+    where: { id: decisionId, leaderId, status: "PENDING" },
+    data: {
+      status,
+      resolvedAt: clk.now(),
+      ...(input.action === "EDITED_APPROVED" ? { editedText: input.editedText } : {}),
+    },
+  });
+  if (upd.count === 0) return { ok: false, code: "ALREADY_RESOLVED", message: "Карточка уже обработана" };
+
+  const approved = input.action === "APPROVE";
+  await db.activityLog.create({
+    data: {
+      createdAt: clk.now(),
+      leaderId,
+      pipeline: "EMAIL",
+      action: `DECISION_${input.action}`,
+      reason: `Руководитель: ${input.action}. ${decision.title}`,
+      savedMinutes: approved ? savedMinutesForApproval : 0,
+      metadata: {
+        decisionId,
+        executed: false,
+        ...(input.action === "DELEGATE" ? { delegateToId: input.delegateToId } : {}),
+      },
+    },
+  });
+
+  await publishEvent(leaderId, { type: "decision.updated", data: { id: decisionId, status } });
+  await publishEvent(leaderId, { type: "metrics.updated", data: {} });
+  return { ok: true, status };
+}

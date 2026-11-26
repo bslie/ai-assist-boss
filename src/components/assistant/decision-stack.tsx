@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { demoDecisions, type Tone } from "@/lib/demo-data";
 import { Button } from "@/components/ui/button";
+import type { DecisionCard, Tone } from "@/core/dashboard";
 
 const TAG: Record<Tone, string> = {
   coral: "bg-coral text-[#2a0c08]",
@@ -11,33 +11,64 @@ const TAG: Record<Tone, string> = {
   dim: "bg-dim text-[#12110f]",
 };
 
-type Action = "APPROVE" | "EDITED_APPROVED" | "DELEGATE" | "SNOOZE";
+export interface Delegate {
+  id: string;
+  name: string;
+  position: string;
+}
 
-/** Стопка карточек решений. Действия позже уходят в POST /api/decisions/[id]/resolve. */
-export function DecisionStack() {
-  const [i, setI] = useState(0);
-  const cur = demoDecisions[i];
-  const more = i < demoDecisions.length - 1;
+type Mode = "idle" | "edit" | "delegate";
 
-  const resolve = (action: Action) => {
-    void action;
-    setI((v) => v + 1);
-  };
+/** Стопка карточек решений. Действия уходят в POST /api/decisions/[id]/resolve. */
+export function DecisionStack({ leaderId, decisions, delegates }: { leaderId: string; decisions: DecisionCard[]; delegates: Delegate[] }) {
+  // Локально скрываем уже решённые, пока сервер не пришлёт обновлённый список (SSE → refresh).
+  const [done, setDone] = useState<Set<string>>(new Set());
+  const [mode, setMode] = useState<Mode>("idle");
+  const [edited, setEdited] = useState("");
+  const [delegateId, setDelegateId] = useState(delegates[0]?.id ?? "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const queue = decisions.filter((d) => !done.has(d.id));
+  const cur = queue[0];
+  const total = decisions.length;
+  const position = total - queue.length + 1;
+
+  async function resolve(body: Record<string, unknown>) {
+    if (!cur || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/decisions/${cur.id}/resolve?leaderId=${encodeURIComponent(leaderId)}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      // 409 — уже решено (другая вкладка/Telegram): тоже убираем карточку.
+      if (!res.ok && res.status !== 409) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(j.error ?? `Ошибка ${res.status}`);
+      }
+      setDone((s) => new Set(s).add(cur.id));
+      setMode("idle");
+      setEdited("");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   if (!cur) {
     return (
       <div className="flex flex-col gap-3 rounded-[22px] border border-dashed border-line-strong p-7">
         <div className="font-serif text-[28px] font-medium leading-tight">Очередь пуста. Спасибо, дальше я сама.</div>
         <div className="text-dim">Следующее письмо с защищённой темой я принесу сюда сразу.</div>
-        <div>
-          <Button variant="outline" className="h-11 rounded-full px-5" onClick={() => setI(0)}>
-            Показать снова
-          </Button>
-        </div>
       </div>
     );
   }
 
+  const more = queue.length > 1;
   return (
     <div className="relative pb-5">
       {more && (
@@ -53,21 +84,76 @@ export function DecisionStack() {
             {cur.from} · {cur.when}
           </span>
           <span className="ml-auto text-[13px] text-dim">
-            Решение {i + 1} из {demoDecisions.length}
+            Решение {Math.min(position, total)} из {total}
           </span>
         </div>
         <h2 className="font-serif text-[28px] font-medium leading-tight tracking-tight">{cur.title}</h2>
         <p className="text-soft">{cur.summary}</p>
-        <blockquote className="rounded-[14px] border border-line bg-ink px-[18px] py-4">
-          <div className="mb-1.5 text-xs text-dim">Что я предлагаю</div>
-          <div className="font-serif text-[17px] leading-normal">{cur.draft}</div>
-        </blockquote>
-        <div className="flex flex-wrap gap-2.5">
-          <Button className="h-12 rounded-full px-6 font-semibold" onClick={() => resolve("APPROVE")}>Утвердить</Button>
-          <Button variant="outline" className="h-12 rounded-full px-5" onClick={() => resolve("EDITED_APPROVED")}>Поправить</Button>
-          <Button variant="outline" className="h-12 rounded-full px-5" onClick={() => resolve("DELEGATE")}>Передать</Button>
-          <Button variant="ghost" className="h-12 rounded-full px-5 text-dim" onClick={() => resolve("SNOOZE")}>Не сейчас</Button>
-        </div>
+
+        {cur.draft && (
+          <blockquote className="rounded-[14px] border border-line bg-ink px-[18px] py-4">
+            <div className="mb-1.5 text-xs text-dim">Что я предлагаю</div>
+            <div className="font-serif text-[17px] leading-normal">{cur.draft}</div>
+          </blockquote>
+        )}
+        {cur.reasons.length > 0 && (
+          <div className="flex flex-col gap-1 text-[13px] text-dim">
+            <div>Почему я спрашиваю:</div>
+            {cur.reasons.map((r) => (
+              <div key={r} className="flex items-center gap-2">
+                <span className="size-[7px] rounded-full bg-sage" />
+                {r}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {mode === "edit" && (
+          <div className="flex flex-col gap-2.5">
+            <label htmlFor="edited" className="text-xs text-dim">Ваш вариант ответа</label>
+            <textarea
+              id="edited"
+              value={edited}
+              onChange={(e) => setEdited(e.target.value)}
+              rows={4}
+              className="rounded-[14px] border border-line-strong bg-ink p-3 font-serif text-[17px] outline-none"
+            />
+            <div className="flex gap-2.5">
+              <Button className="h-11 rounded-full px-5 font-semibold" disabled={busy || !edited.trim()} onClick={() => resolve({ action: "EDITED_APPROVED", editedText: edited.trim() })}>
+                Отправить мой вариант
+              </Button>
+              <Button variant="ghost" className="h-11 rounded-full px-5 text-dim" onClick={() => setMode("idle")}>Отмена</Button>
+            </div>
+          </div>
+        )}
+
+        {mode === "delegate" && (
+          <div className="flex flex-col gap-2.5">
+            <label htmlFor="delegate" className="text-xs text-dim">Кому передать</label>
+            <select id="delegate" value={delegateId} onChange={(e) => setDelegateId(e.target.value)} className="min-h-11 rounded-full border border-line-strong bg-ink px-4 outline-none">
+              {delegates.map((d) => (
+                <option key={d.id} value={d.id}>{d.name}, {d.position}</option>
+              ))}
+            </select>
+            <div className="flex gap-2.5">
+              <Button className="h-11 rounded-full px-5 font-semibold" disabled={busy || !delegateId} onClick={() => resolve({ action: "DELEGATE", delegateToId: delegateId })}>
+                Передать
+              </Button>
+              <Button variant="ghost" className="h-11 rounded-full px-5 text-dim" onClick={() => setMode("idle")}>Отмена</Button>
+            </div>
+          </div>
+        )}
+
+        {error && <div role="alert" className="rounded-[14px] bg-[#2a1a18] px-3.5 py-2.5 text-[13px] text-coral">{error}</div>}
+
+        {mode === "idle" && (
+          <div className="flex flex-wrap gap-2.5">
+            <Button className="h-12 rounded-full px-6 font-semibold" disabled={busy} onClick={() => resolve({ action: "APPROVE" })}>Утвердить</Button>
+            <Button variant="outline" className="h-12 rounded-full px-5" disabled={busy} onClick={() => { setEdited(cur.draft ?? ""); setMode("edit"); }}>Поправить</Button>
+            <Button variant="outline" className="h-12 rounded-full px-5" disabled={busy || delegates.length === 0} onClick={() => setMode("delegate")}>Передать</Button>
+            <Button variant="ghost" className="h-12 rounded-full px-5 text-dim" disabled={busy} onClick={() => resolve({ action: "SNOOZE" })}>Не сейчас</Button>
+          </div>
+        )}
       </article>
     </div>
   );

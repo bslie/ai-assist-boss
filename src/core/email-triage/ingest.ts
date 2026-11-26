@@ -6,6 +6,7 @@
  */
 import type { PrismaClient, Prisma } from "@/generated/prisma/client";
 import { clock } from "../clock";
+import type { LeaderEvent } from "../events";
 import type { LlmClient } from "../llm";
 import type { RelationType, RiskContext } from "../policy-gate";
 import { triageEmail, type CategoryRule, type EmailAction, type EmailCategory } from "./classify";
@@ -29,6 +30,8 @@ export interface IncomingEmail extends RawEmail {
 
 export interface IngestOptions {
   /** Черновик ответа для карточки (стиль руководителя + Memory); необязателен. */
+  /** Событие для SSE (decision.created, email.processed). Ошибки подписчика не ломают разбор. */
+  emit?: (event: LeaderEvent) => Promise<void> | void;
   draft?: (ctx: { leaderId: string; email: IncomingEmail; summary: string }) => Promise<string | null>;
 }
 
@@ -148,6 +151,7 @@ export async function ingestEmails(
       const saved = linked ? minutes.REPEAT_LINKED : 0;
       await db.activityLog.create({
         data: {
+          createdAt: clock.now(),
           leaderId,
           pipeline: "EMAIL",
           action: linked ? "REPEAT_LINKED" : "REPEAT_TO_DIGEST",
@@ -159,6 +163,8 @@ export async function ingestEmails(
         },
       });
       stats.processed++;
+      await opts.emit?.({ type: "email.processed", data: { externalId: email.externalId ?? null, repeat: true, occurrence } });
+      if (linked) await opts.emit?.({ type: "decision.updated", data: { id: first.decisionId } });
       continue;
     }
 
@@ -178,6 +184,7 @@ export async function ingestEmails(
       const draftText = (await opts.draft?.({ leaderId, email, summary: c.summary })) ?? null;
       const d = await db.decision.create({
         data: {
+          createdAt: clock.now(),
           leaderId,
           type: DECISION_TYPE_BY_CATEGORY[c.category] ?? "EMAIL_REPLY",
           title: email.subject,
@@ -190,6 +197,7 @@ export async function ingestEmails(
       });
       decisionId = d.id;
       stats.decisionsCreated++;
+      await opts.emit?.({ type: "decision.created", data: { id: d.id } });
     } else if (decision.action === "DELEGATE") {
       const rule = rules.find((r) => (r.condition as { category?: string } | null)?.category === c.category && r.delegateToArea);
       const assignee = rule?.delegateToArea
@@ -233,6 +241,7 @@ export async function ingestEmails(
     const delegatedWithoutAssignee = decision.action === "DELEGATE" && !taskId;
     await db.activityLog.create({
       data: {
+          createdAt: clock.now(),
         leaderId,
         pipeline: "EMAIL",
         action: decision.action,
@@ -245,6 +254,7 @@ export async function ingestEmails(
     });
     bump(decision.action);
     stats.processed++;
+    await opts.emit?.({ type: "email.processed", data: { externalId: email.externalId ?? null, action: decision.action } });
   }
 
   return stats;
