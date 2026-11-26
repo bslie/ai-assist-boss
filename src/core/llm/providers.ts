@@ -12,7 +12,14 @@ export function createProviderFromEnv(env: NodeJS.ProcessEnv = process.env): Llm
   const model = env.LLM_MODEL;
   if (!baseURL || !model) throw new Error("LLM_BASE_URL and LLM_MODEL must be set");
   const name = env.LLM_PROVIDER_NAME ?? "openai-compatible";
-  const client = createOpenAICompatible({ name, baseURL, apiKey: env.LLM_API_KEY });
+  // Без supportsStructuredOutputs схема не уходит в запрос (json_object), и модель выдумывает имена полей.
+  // LLM_STRUCTURED_OUTPUTS=0 отключает для эндпоинтов без json_schema.
+  const client = createOpenAICompatible({
+    name,
+    baseURL,
+    apiKey: env.LLM_API_KEY,
+    supportsStructuredOutputs: env.LLM_STRUCTURED_OUTPUTS !== "0",
+  });
 
   return {
     name,
