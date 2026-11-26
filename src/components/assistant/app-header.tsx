@@ -6,7 +6,10 @@ import { cn } from "@/lib/utils";
 
 const NAV = [
   { href: "/", label: "Разговор" },
+  { href: "/tasks", label: "Поручения" },
   { href: "/rules", label: "Как я работаю" },
+  { href: "/routines", label: "Рутины" },
+  { href: "/metrics", label: "Метрики" },
   { href: "/profile", label: "Профиль" },
   { href: "/connectors", label: "Подключения" },
 ];
