@@ -138,7 +138,25 @@ export async function handleBusinessMessage(deps: BusinessDeps, m: BusinessIncom
   return { status: "queued", decisionId: d.id };
 }
 
-const ReplyPayload = z.object({
+/** Права бота изменились на «можно отвечать» → доотправить утверждённые, но не отправленные ответы за последние сутки. */
+export async function retryApprovedReplies(deps: BusinessDeps, connectionId: string): Promise<number> {
+  const conn = await deps.db.businessConnection.findUnique({ where: { connectionId } });
+  if (!conn || !conn.isEnabled || !conn.canReply) return 0;
+  const pending = await deps.db.decision.findMany({
+    where: {
+      leaderId: conn.leaderId,
+      status: { in: ["APPROVED", "EDITED_APPROVED"] },
+      resolvedAt: { gt: new Date(clock.now().getTime() - 24 * 3_600_000) },
+      proposedPayload: { path: ["tool"], equals: BUSINESS_REPLY_TOOL },
+    },
+    select: { id: true },
+  });
+  let sent = 0;
+  for (const d of pending) if ((await executeBusinessReply(deps, conn.leaderId, d.id))?.status === "sent") sent++;
+  return sent;
+}
+
+const ReplyPayload =z.object({
   tool: z.literal(BUSINESS_REPLY_TOOL),
   args: z.object({ connectionId: z.string().min(1), chatId: z.string().min(1), replyToMessageId: z.number().int().optional() }),
 });

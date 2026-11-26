@@ -7,7 +7,7 @@ vi.stubEnv("APP_CLOCK_MODE", "real");
 const { db } = await import("@/db/client");
 const { clock } = await import("@/core/clock");
 const { resolveDecision }= await import("@/core/decisions");
-const { BUSINESS_CONNECTOR, BUSINESS_READ_ALL_TOOL, BUSINESS_READ_TOOL, BUSINESS_REPLY_TOOL, executeBusinessReply, handleBusinessConnection, handleBusinessMessage } =
+const { BUSINESS_CONNECTOR, BUSINESS_READ_ALL_TOOL, BUSINESS_READ_TOOL, BUSINESS_REPLY_TOOL, executeBusinessReply, handleBusinessConnection, handleBusinessMessage, retryApprovedReplies } =
   await import("@/core/telegram/business");
 
 const dbUp = await db.$queryRaw`select 1`.then(() => true, () => false);
@@ -130,6 +130,15 @@ describe.skipIf(!dbUp)("Telegram Business: чаты руководителя", (
     await db.businessConnection.update({ where: { connectionId }, data: { canReply: false } });
     expect(await executeBusinessReply(deps(), leaderId, denied)).toMatchObject({ status: "skipped" });
     expect(business).toHaveLength(1);
+  });
+
+  it("право отвечать выдано позже → утверждённый ответ доотправляется один раз", async () => {
+    expect(await retryApprovedReplies(deps(), connectionId)).toBe(0); // права ещё нет
+    await db.businessConnection.update({ where: { connectionId }, data: { canReply: true } });
+    expect(await retryApprovedReplies(deps(), connectionId)).toBe(1);
+    expect(business).toHaveLength(2);
+    expect(await retryApprovedReplies(deps(), connectionId)).toBe(0);
+    expect(business).toHaveLength(2);
   });
 
   it("«читать всех» выключено по умолчанию; включённое пускает чужих, но не ботов и не группы", async () => {

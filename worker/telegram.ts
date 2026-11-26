@@ -7,7 +7,7 @@ import type { PrismaClient } from "@/generated/prisma/client";
 import { createDraftGenerator } from "@/core/learning/draft";
 import type { LlmClient } from "@/core/llm";
 import { handleStart, listRoles } from "@/core/telegram/bindings";
-import { handleBusinessConnection, handleBusinessMessage } from "@/core/telegram/business";
+import { handleBusinessConnection, handleBusinessMessage, retryApprovedReplies } from "@/core/telegram/business";
 import { dispatchPendingForEmployee } from "@/core/tasks/dispatch";
 import { handleCallback, handleText } from "@/core/telegram/handlers";
 import type { Button, Messenger, StateStore } from "@/core/telegram/types";
@@ -74,7 +74,12 @@ export function createBot(token: string, db: PrismaClient, state: StateStore, op
       canReply: Boolean(c.rights?.can_reply),
       isEnabled: c.is_enabled,
     });
-    console.log(`[telegram] business_connection: ${r.status}${r.status === "skipped" ? ` (${r.reason})` : ""}`);
+    console.log(`[telegram] business_connection: ${r.status}${r.status === "skipped" ? ` (${r.reason})` : ""}, можно отвечать: ${Boolean(c.rights?.can_reply)}`);
+    // Руководитель выдал право отвечать: утверждённые раньше ответы, которые не ушли, уходят сейчас.
+    if (r.status === "queued") {
+      const n = await retryApprovedReplies({ db, messenger }, c.id);
+      if (n > 0) console.log(`[telegram] доотправлено ответов: ${n}`);
+    }
   });
   bot.on("business_message:text", async (ctx) => {
     const m = ctx.businessMessage;
