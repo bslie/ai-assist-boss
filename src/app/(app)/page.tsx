@@ -19,8 +19,6 @@ function greeting(now: Date) {
   return h < 12 ? "Доброе утро" : h < 18 ? "Добрый день" : "Добрый вечер";
 }
 
-const num = (n: number) => String(n).replace(".", ",");
-
 async function Today() {
   const leader = await getCurrentLeader();
   if (!leader) {
