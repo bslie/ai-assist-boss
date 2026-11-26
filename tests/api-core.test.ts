@@ -68,7 +68,7 @@ describe.skipIf(!dbUp)("ядро API (Postgres, Redis)", () => {
     expect(today.headline).toMatchObject({ total: 80, waiting: 8 });
     const pavlova = today.decisions.find((d) => d.from.includes("Павлова"));
     expect(pavlova?.reminderCount).toBe(5);
-    expect(pavlova?.tag).toContain("повтор ×6");
+    expect(pavlova?.repeatNote).toContain("6-е письмо");
     expect(today.metrics.autoEmailsPct).toBe(50);
 
     const other = await getToday(db, otherLeaderId);

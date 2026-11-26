@@ -87,6 +87,9 @@ export function DecisionStack({ leaderId, decisions, delegates }: { leaderId: st
             Решение {Math.min(position, total)} из {total}
           </span>
         </div>
+        {cur.repeatNote && (
+          <div className="rounded-[12px] border border-coral/40 bg-[#2a1a18] px-3.5 py-2.5 text-[13px] text-soft">{cur.repeatNote}</div>
+        )}
         <h2 className="font-serif text-[28px] font-medium leading-tight tracking-tight">{cur.title}</h2>
         <p className="text-soft">{cur.summary}</p>
 

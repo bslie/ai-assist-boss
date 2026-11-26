@@ -54,6 +54,8 @@ export interface DecisionCard {
   recommendation: string;
   reasons: string[];
   reminderCount: number;
+  /** Пояснение к повторам: сколько раз вопрос возвращался и что с этим делать. null — вопрос новый. */
+  repeatNote: string | null;
 }
 
 export interface DayItem {
@@ -61,6 +63,8 @@ export interface DayItem {
   title: string;
   note: string;
   tone: Tone;
+  /** Что стоит за пунктом: раскрывается по клику. */
+  details: string[];
 }
 
 export interface TodayData {
@@ -107,7 +111,7 @@ export async function buildDecisionCards(db: PrismaClient, leaderId: string, pen
     return {
       id: d.id,
       type: d.type,
-      tag: d.reminderCount > 0 ? `${meta.tag} · повтор ×${d.reminderCount + 1}` : meta.tag,
+      tag: meta.tag,
       tone: meta.tone,
       from: src?.senderName ?? "",
       when: src ? fmtTime(src.receivedAt) : "",
@@ -117,6 +121,10 @@ export async function buildDecisionCards(db: PrismaClient, leaderId: string, pen
       recommendation: d.aiRecommendation,
       reasons: humanizeReasons(d.gateReasons),
       reminderCount: d.reminderCount,
+      repeatNote:
+        d.reminderCount > 0
+          ? `Это уже ${d.reminderCount + 1}-е письмо по этому вопросу: автор ждёт ответа. Решите сейчас или нажмите «Не сейчас»: верну в утреннем плане.`
+          : null,
     };
   });
 }
@@ -181,12 +189,25 @@ export async function getToday(db: PrismaClient, leaderId: string): Promise<Toda
             ? "закроет асинхронный статус"
             : "",
       tone: m.participationMode === "LEADER" ? "dim" : "sage",
+      details: [
+        `${fmtTime(m.startAt)}–${fmtTime(m.endAt)}`,
+        m.participationMode === "AVATAR"
+          ? "Вместо вас придёт аватар: он озвучит вашу позицию и задаст вопросы по прошлому протоколу."
+          : m.participationMode === "ASYNC_STATUS"
+            ? "Присутствовать не нужно: статус пришлют письменно."
+            : "Нужно ваше личное участие.",
+        ...(m.meetingUrl ? [m.meetingUrl] : []),
+      ],
     })),
     ...tasks.filter(overdue).map<DayItem>((t) => ({
       time: "срок прошёл",
       title: t.title,
       note: "просрочено",
       tone: "coral",
+      details: [
+        `Срок был ${fmtTime(t.dueAt)}, ${t.dueAt.toLocaleDateString("ru-RU", { day: "numeric", month: "long", timeZone: "Europe/Moscow" })}.`,
+        ...(t.description ? [t.description] : []),
+      ],
     })),
   ];
 

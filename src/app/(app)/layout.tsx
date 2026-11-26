@@ -1,21 +1,10 @@
-import { Suspense } from "react";
 import { AppHeader } from "@/components/assistant/app-header";
-import { getCurrentLeader } from "@/lib/current-leader";
 
-const FALLBACK_TITLE = "ИИ-помощник";
-
-async function LeaderHeader() {
-  const leader = await getCurrentLeader();
-  // Агент всегда представляется как «ИИ-помощник <имя руководителя>» (CLAUDE.md).
-  return <AppHeader title={leader ? `${FALLBACK_TITLE} ${leader.name}` : FALLBACK_TITLE} />;
-}
-
+// Руководитель и так знает, чей это помощник: имя в шапке не нужно (представляться «ИИ-помощник <имя>» агент будет в письмах и сообщениях).
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen flex-col">
-      <Suspense fallback={<AppHeader title={FALLBACK_TITLE} />}>
-        <LeaderHeader />
-      </Suspense>
+      <AppHeader title="ИИ-помощник" />
       {children}
     </div>
   );

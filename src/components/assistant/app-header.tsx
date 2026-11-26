@@ -13,7 +13,7 @@ const NAV = [
 export function AppHeader({ title }: { title: string }) {
   const pathname = usePathname();
   return (
-    <header className="flex flex-wrap items-center gap-4 px-5 py-5 sm:px-10">
+    <header className="mx-auto flex w-full max-w-[1280px] flex-wrap items-center gap-4 px-5 py-5 sm:px-10">
       <div className="flex items-center gap-3">
         <svg width="32" height="32" viewBox="0 0 32 32" fill="none" aria-hidden="true">
           <circle cx="16" cy="16" r="15" stroke="var(--amber)" strokeWidth="1.5" />

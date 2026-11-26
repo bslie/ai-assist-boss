@@ -2,12 +2,10 @@ import { Suspense } from "react";
 import { Composer } from "@/components/assistant/composer";
 import { DecisionStack } from "@/components/assistant/decision-stack";
 import { LiveRefresh } from "@/components/assistant/live-refresh";
-import { getToday, plural, type Tone } from "@/core/dashboard";
+import { DayList } from "@/components/assistant/day-list";
+import { getToday, plural } from "@/core/dashboard";
 import { db } from "@/db/client";
 import { getCurrentLeader } from "@/lib/current-leader";
-
-const DOT: Record<Tone, string> = { amber: "bg-amber", sage: "bg-sage", coral: "bg-coral", dim: "bg-dim" };
-const NOTE: Record<Tone, string> = { amber: "text-amber", sage: "text-sage", coral: "text-coral", dim: "text-dim" };
 
 const TZ = "Europe/Moscow";
 const fmt = (d: Date, o: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat("ru-RU", { timeZone: TZ, ...o }).format(d);
@@ -40,8 +38,8 @@ async function Today() {
   return (
     <>
       <LiveRefresh leaderId={leader.id} />
-      <div className="mx-auto flex w-full max-w-[1160px] flex-1 flex-wrap items-start gap-14 px-5 pb-10 pt-6 sm:px-10">
-        <main className="flex min-w-0 max-w-[720px] flex-[999_1_520px] flex-col gap-8">
+      <div className="mx-auto grid w-full max-w-[1280px] flex-1 grid-cols-1 items-start gap-10 px-5 pt-6 sm:px-10 lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-14">
+        <main className="flex min-h-[calc(100vh-100px)] min-w-0 flex-col gap-8">
           <section aria-label="Утреннее сообщение" className="flex flex-col gap-4">
             <div className="text-[13px] text-dim">
               {cap(fmt(now, { weekday: "long", day: "numeric", month: "long" }))} · {fmt(now, { hour: "2-digit", minute: "2-digit" })}
@@ -69,25 +67,18 @@ async function Today() {
           <section aria-label="Решения">
             <DecisionStack leaderId={leader.id} decisions={today.decisions} delegates={delegates} />
           </section>
+          <div className="mt-auto">
+            <Composer />
+          </div>
         </main>
 
-        <aside aria-label="Ваш день" className="flex min-w-0 flex-[1_1_280px] flex-col gap-8 pt-2">
+        <aside aria-label="Ваш день" className="flex min-w-0 flex-col gap-8 pt-2 lg:sticky lg:top-6">
           <div className="flex flex-col gap-1">
             <div className="text-[13px] text-dim">Ваш день</div>
             {today.day.length === 0 ? (
               <div className="pt-3.5 text-soft">На сегодня встреч нет.</div>
             ) : (
-              <ol className="relative flex flex-col gap-[22px] pl-[22px] pt-3.5">
-                <div className="absolute bottom-2 left-[5px] top-5 w-px bg-[#3d3931]" />
-                {today.day.map((e, i) => (
-                  <li key={`${e.time}-${e.title}-${i}`} className="relative flex flex-col gap-0.5">
-                    <span className={`absolute -left-[22px] top-1.5 size-[11px] rounded-full border-2 border-ink ${DOT[e.tone]}`} />
-                    <span className="text-[13px] text-dim">{e.time}</span>
-                    <span className="font-medium">{e.title}</span>
-                    {e.note && <span className={`text-[13px] ${NOTE[e.tone]}`}>{e.note}</span>}
-                  </li>
-                ))}
-              </ol>
+              <DayList items={today.day} />
             )}
           </div>
           <div className="flex flex-col gap-1.5 border-t border-line pt-6">
@@ -99,7 +90,6 @@ async function Today() {
           </div>
         </aside>
       </div>
-      <Composer />
     </>
   );
 }
