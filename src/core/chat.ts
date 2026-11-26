@@ -23,6 +23,8 @@ export interface ChatAction {
 }
 export interface ChatReply {
   text: string;
+  /** Подготовленный текст письма: показывается отдельной цитатой. */
+  draft?: string;
   actions?: ChatAction[];
 }
 
@@ -88,11 +90,15 @@ async function statusText(db: PrismaClient, leaderId: string): Promise<string> {
     n > 0 ? `Без вас не решить: ${n} ${plural(n, "вопрос", "вопроса", "вопросов")}, они выше в карточках.` : "Решений, которые ждут вас, нет.",
   ];
   const meetings = t.day.filter((d) => d.time !== "срок прошёл");
-  if (meetings.length) lines.push(`Сегодня ${meetings.length} ${plural(meetings.length, "встреча", "встречи", "встреч")}: ${meetings.slice(0, 3).map((m) => `${m.time} ${m.title}`).join("; ")}${meetings.length > 3 ? "…" : ""}.`);
+  if (meetings.length) {
+    lines.push(`Сегодня ${meetings.length} ${plural(meetings.length, "встреча", "встречи", "встреч")}:`);
+    lines.push(...meetings.slice(0, 4).map((m) => `• ${m.time} ${m.title}`));
+    if (meetings.length > 4) lines.push(`…и ещё ${meetings.length - 4}`);
+  }
   const overdue = t.day.length - meetings.length;
   if (overdue) lines.push(`Просрочено задач: ${overdue}.`);
-  if (t.priorities.length) lines.push(`Главное: ${t.priorities.join("; ")}.`);
-  return lines.join(" ");
+  if (t.priorities.length) lines.push("Главное:", ...t.priorities.map((p) => `• ${p}`));
+  return lines.join("\n");
 }
 
 async function addRule(db: PrismaClient, leaderId: string, original: string, rule: NonNullable<z.infer<typeof IntentSchema>["rule"]>): Promise<ChatReply> {
@@ -144,7 +150,8 @@ async function proposeReply(db: PrismaClient, llm: LlmClient, leaderId: string, 
   });
   const body = ensureSignature(out.text, leader.name);
   return {
-    text: `Подготовила ответ для ${card.from} по письму «${card.title}»:\n\n${body}`,
+    text: `Подготовила ответ на письмо «${card.title}»${card.from ? ` от ${card.from}` : ""}. Проверьте и отправьте:`,
+    draft: body,
     actions: [{ label: "Отправить этот ответ", resolve: { decisionId: card.id, body: { action: "EDITED_APPROVED", editedText: body } } }],
   };
 }
