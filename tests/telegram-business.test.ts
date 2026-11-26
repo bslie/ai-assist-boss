@@ -7,7 +7,7 @@ vi.stubEnv("APP_CLOCK_MODE", "real");
 const { db } = await import("@/db/client");
 const { clock } = await import("@/core/clock");
 const { resolveDecision }= await import("@/core/decisions");
-const { BUSINESS_CONNECTOR, BUSINESS_READ_TOOL, BUSINESS_REPLY_TOOL, executeBusinessReply, handleBusinessConnection, handleBusinessMessage } =
+const { BUSINESS_CONNECTOR, BUSINESS_READ_ALL_TOOL, BUSINESS_READ_TOOL, BUSINESS_REPLY_TOOL, executeBusinessReply, handleBusinessConnection, handleBusinessMessage } =
   await import("@/core/telegram/business");
 
 const dbUp = await db.$queryRaw`select 1`.then(() => true, () => false);
@@ -130,5 +130,17 @@ describe.skipIf(!dbUp)("Telegram Business: чаты руководителя", (
     await db.businessConnection.update({ where: { connectionId }, data: { canReply: false } });
     expect(await executeBusinessReply(deps(), leaderId, denied)).toMatchObject({ status: "skipped" });
     expect(business).toHaveLength(1);
+  });
+
+  it("«читать всех» выключено по умолчанию; включённое пускает чужих, но не ботов и не группы", async () => {
+    const stranger = msg({ chatId: `stranger-${tag}`, fromUserId: "stranger", messageId: "90", fromName: "Пётр Незнакомцев" });
+    expect((await handleBusinessMessage(deps(), stranger)).status).toBe("skipped");
+
+    await setPerms({ [BUSINESS_READ_TOOL]: "AUTO", [BUSINESS_READ_ALL_TOOL]: "AUTO", [BUSINESS_REPLY_TOOL]: "APPROVE" });
+    expect((await handleBusinessMessage(deps(), { ...stranger, fromIsBot: true })).status).toBe("skipped");
+    expect((await handleBusinessMessage(deps(), stranger)).status).toBe("queued");
+    const d = await db.decision.findFirstOrThrow({ where: { leaderId, title: { contains: "Пётр" } } });
+    expect(d.status).toBe("PENDING");
+    expect((d.proposedPayload as { args: { chatId: string } }).args.chatId).toBe(`stranger-${tag}`);
   });
 });

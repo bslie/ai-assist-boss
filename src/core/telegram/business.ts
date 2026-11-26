@@ -18,6 +18,7 @@ import { esc, type Messenger } from "./types";
 
 export const BUSINESS_CONNECTOR = "BUILTIN_TELEGRAM_BUSINESS";
 export const BUSINESS_READ_TOOL = "telegram_business.read_messages";
+export const BUSINESS_READ_ALL_TOOL = "telegram_business.read_all";
 export const BUSINESS_REPLY_TOOL = "telegram_business.send_reply";
 
 export interface BusinessConnectionUpdate {
@@ -34,6 +35,8 @@ export interface BusinessIncoming {
   messageId: string;
   fromUserId: string;
   fromIsBot: boolean;
+  /** Имя из Telegram: нужно для карточки, если отправитель не сотрудник. */
+  fromName?: string;
   text: string;
 }
 
@@ -81,13 +84,19 @@ export async function handleBusinessMessage(deps: BusinessDeps, m: BusinessIncom
   const perm = await getToolPermission(db, leaderId, BUSINESS_CONNECTOR, BUSINESS_READ_TOOL);
   if (perm === null || perm === "DENY") return { status: "skipped", reason: "чтение сообщений не включено" };
 
-  // Только привязанные сотрудники этого руководителя.
-  const employee = await db.telegramBinding.findFirst({
+  // По умолчанию только привязанные сотрудники. Остальных читаем, лишь если руководитель включил «читать всех».
+  const binding = await db.telegramBinding.findFirst({
     where: { chatId: m.chatId, leaderId, role: "EMPLOYEE", employeeId: { not: null } },
     include: { employee: true },
   });
-  if (!employee?.employee) return { status: "skipped", reason: "отправитель не привязан как сотрудник" };
-  const emp = employee.employee;
+  let emp: { name: string; email: string; position: string | null };
+  if (binding?.employee) {
+    emp = binding.employee;
+  } else {
+    const all = await getToolPermission(db, leaderId, BUSINESS_CONNECTOR, BUSINESS_READ_ALL_TOOL);
+    if (all === null || all === "DENY") return { status: "skipped", reason: "отправитель не привязан как сотрудник" };
+    emp = { name: m.fromName?.trim() || "Неизвестный отправитель", email: `tg-${m.fromUserId}@telegram.local`, position: null };
+  }
 
   const externalId = `tgb:${m.connectionId}:${m.chatId}:${m.messageId}`;
   const subject = text.length > 70 ? `${text.slice(0, 67)}…` : text;
@@ -95,7 +104,7 @@ export async function handleBusinessMessage(deps: BusinessDeps, m: BusinessIncom
     externalId,
     senderName: emp.name,
     senderEmail: emp.email,
-    senderRole: emp.position,
+    senderRole: emp.position ?? undefined,
     subject,
     body: text,
     receivedAt: clock.now(),

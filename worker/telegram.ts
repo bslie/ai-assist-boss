@@ -83,7 +83,7 @@ export function createBot(token: string, db: PrismaClient, state: StateStore, op
     const draftLlm = opts.llm;
     const r = await handleBusinessMessage(
       { db, messenger, llm: opts.llm, draft: draftLlm ? createDraftGenerator(db, draftLlm) : undefined },
-      { connectionId, chatId: String(m.chat.id), messageId: String(m.message_id), fromUserId: String(m.from.id), fromIsBot: m.from.is_bot, text: m.text },
+      { connectionId, chatId: String(m.chat.id), messageId: String(m.message_id), fromUserId: String(m.from.id), fromIsBot: m.from.is_bot, fromName: [m.from.first_name, m.from.last_name].filter(Boolean).join(" "), text: m.text },
     );
     console.log(`[telegram] business_message: ${r.status}${r.status === "skipped" ? ` (${r.reason})` : ""}`);
   });
