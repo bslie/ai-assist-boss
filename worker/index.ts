@@ -14,6 +14,8 @@ import { tick, type JobQueue, type RoutineJob } from "@/core/scheduler";
 import { processRoutineJob } from "@/core/telegram/morning";
 import { activeMailConnectors } from "@/core/mail/poll";
 import { pollWithPipeline } from "@/core/mail/pipeline";
+import { prepareAgenda } from "@/core/meetings/agenda";
+import { dueAvatarMeetings, launchAvatarBot } from "@/core/meetings/recall";
 import { relayEvent } from "@/core/telegram/relay";
 import type { StateStore } from "@/core/telegram/types";
 import { db } from "@/db/client";
@@ -117,6 +119,26 @@ async function main() {
   void runMailPoll();
   const mailTimer = setInterval(runMailPoll, MAIL_POLL_MS);
 
+  // Встречи с аватаром (SPEC 5.2): раз в 2 минуты реального времени готовим вопросы и за минуту до начала отправляем бота.
+  let launching = false;
+  const runAvatarCheck = async () => {
+    if (launching) return;
+    launching = true;
+    try {
+      for (const m of await dueAvatarMeetings(db)) {
+        await prepareAgenda(db, m.leaderId, m.id);
+        const res = await launchAvatarBot(db, m.leaderId, m.id);
+        if (res.status !== "skipped") log(`аватар ${m.id}: ${res.status}${res.status === "failed" ? ` (${res.reason})` : ""}`);
+      }
+    } catch (e) {
+      log("запуск аватара не удался:", (e as Error).message);
+    } finally {
+      launching = false;
+    }
+  };
+  void runAvatarCheck();
+  const avatarTimer = setInterval(runAvatarCheck, 120_000);
+
   if (bot) {
     void bot.start({ onStart: (me) => log(`бот @${me.username} запущен`) });
   }
@@ -125,6 +147,7 @@ async function main() {
     log("останавливаюсь…");
     clearInterval(timer);
     clearInterval(mailTimer);
+    clearInterval(avatarTimer);
     await bot?.stop();
     await unsubscribe();
     await worker.close();

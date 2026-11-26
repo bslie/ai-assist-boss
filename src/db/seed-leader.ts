@@ -5,6 +5,7 @@
 import type { PrismaClient, TaskStatus } from "@/generated/prisma/client";
 import type { CalendarEvent } from "../core/dataset/ics";
 import type { DatasetTask, OrgMember } from "../core/dataset";
+import { defaultParticipation } from "../core/meetings/participation";
 import { applyProfile, diffProfile, type ProfileDiff, type ProfileDraft } from "../core/profile";
 
 const TRANSLIT: Record<string, string> = {
@@ -97,8 +98,20 @@ export async function seedLeader(db: PrismaClient, input: SeedLeaderInput): Prom
       category: e.category,
       startAt: e.start,
       endAt: e.end,
+      attendees: e.attendees,
+      participationMode: defaultParticipation(e.category, e.summary, input.draft.protectedBlocks ?? []),
+      // В датасете ссылок нет: для демо с настоящим Zoom задаётся DEMO_MEETING_URL (только встречам с аватаром).
+      meetingUrl: defaultParticipation(e.category, e.summary, input.draft.protectedBlocks ?? []) === "AVATAR" ? (process.env.DEMO_MEETING_URL ?? null) : null,
     })),
   });
+  // Серия встреч: предыдущая встреча с тем же названием (нужна для вопросов по прошлому протоколу).
+  const all = await db.meeting.findMany({ where: { leaderId, externalId: { not: null } }, orderBy: { startAt: "asc" }, select: { id: true, title: true } });
+  const lastByTitle = new Map<string, string>();
+  for (const m of all) {
+    const prev = lastByTitle.get(m.title);
+    if (prev) await db.meeting.update({ where: { id: m.id }, data: { previousMeetingId: prev } });
+    lastByTitle.set(m.title, m.id);
+  }
 
   await db.task.deleteMany({ where: { leaderId, sourceType: "DATASET" } });
   await db.task.createMany({

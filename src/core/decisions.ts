@@ -10,6 +10,7 @@ import type { PrismaClient } from "@/generated/prisma/client";
 import { readyClock } from "./clock";
 import { publishEvent } from "./events";
 import { executeApprovedReply } from "./mail/send";
+import { executeApprovedProtocol } from "./meetings/approve";
 
 export const ResolveSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("APPROVE") }),
@@ -63,7 +64,8 @@ export async function resolveDecision(
   });
   if (upd.count === 0) return { ok: false, code: "ALREADY_RESOLVED", message: "Карточка уже обработана" };
 
-  const approved = input.action === "APPROVE";
+  // Протокол сам начисляет 30 минут при исполнении, поэтому здесь за него не считаем.
+  const approved = input.action === "APPROVE" && decision.type !== "MEETING_PROTOCOL";
   await db.activityLog.create({
     data: {
       createdAt: clk.now(),
@@ -83,6 +85,7 @@ export async function resolveDecision(
   // Утверждённый ответ уходит в почту через Policy Gate. Сбой отправки не отменяет решение: он виден в журнале.
   if (input.action === "APPROVE" || input.action === "EDITED_APPROVED") {
     await executeApprovedReply(db, leaderId, decisionId).catch(() => null);
+    if (decision.type === "MEETING_PROTOCOL") await executeApprovedProtocol(db, leaderId, decisionId).catch(() => null);
   }
 
   await publishEvent(leaderId, { type: "decision.updated", data: { id: decisionId, status } });

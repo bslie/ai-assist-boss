@@ -272,6 +272,7 @@ model Meeting {
   startAt            DateTime
   endAt              DateTime
   meetingUrl         String?
+  attendees          Json? // string[] — адреса участников из календаря
   participationMode  String    @default("LEADER") // LEADER | AVATAR | ASYNC_STATUS
   avatarToken        String    @unique @default(cuid()) // для публичной страницы аватара
   recallBotId        String?
