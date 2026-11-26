@@ -17,7 +17,8 @@ const STATUS_TEXT: Record<string, string> = {
 export function cardText(c: DecisionCard): string {
   const lines = [
     c.reminderCount > 0 ? `<i>Напоминание №${c.reminderCount}</i>` : null,
-    `<b>${esc(c.tag)}</b> · ${esc(c.from)}${c.when ? ` · ${esc(c.when)}` : ""}`,
+    // Отправитель и время есть не у каждой карточки (например, у поручения нет письма): без висящих « · ».
+    [`<b>${esc(c.tag)}</b>`, c.from && esc(c.from), c.when && esc(c.when)].filter(Boolean).join(" · "),
     `<b>${esc(c.title)}</b>`,
     esc(c.summary),
     c.draft ? `\nЧто я предлагаю:\n<i>${esc(c.draft)}</i>` : null,

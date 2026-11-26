@@ -28,7 +28,8 @@ export async function buildMorningDigest(db: PrismaClient, leaderId: string, opt
       : "Решений, которые ждут вас, нет.",
   );
   if (opts.resurfaced) {
-    lines.push(`Среди них ${opts.resurfaced} ${plural(opts.resurfaced, "отложенный вопрос", "отложенных вопроса", "отложенных вопросов")}, которые вы просили вернуть.`);
+    // Без согласования «который/которые»: просто число, чтобы фраза была верна при любом количестве.
+    lines.push(`Вернула отложенные по вашей просьбе: ${opts.resurfaced}.`);
   }
   if (t.doneChips.length) lines.push("", "<b>Сделано без вас</b>", ...t.doneChips.map((c) => `• ${esc(c)}`));
   const waiting = await waitingForInvite(db, leaderId);

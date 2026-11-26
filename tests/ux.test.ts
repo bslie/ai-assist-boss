@@ -137,6 +137,10 @@ describe.skipIf(!dbUp)("UX бота и экрана (Postgres)", () => {
     await sendDecisionCard(db, m, leaderId, d.id);
     expect(sent[0].text).toContain("Внешнее приглашение выступить или участвовать");
     expect(sent[0].text).not.toContain("EXTERNAL_INVITATION");
+    // У карточки без письма-источника нет отправителя и времени: заголовок без висящей точки.
+    const header = sent[0].text.split("\n")[0];
+    expect(header).toBe("<b>Решение</b>");
+    expect(header.trimEnd().endsWith("·")).toBe(false);
   });
 
   describe("правка ответом на карточку", () => {
@@ -221,7 +225,7 @@ describe.skipIf(!dbUp)("UX бота и экрана (Postgres)", () => {
       await bind(chat("L"));
       const { m, sent } = fakeMessenger();
       expect(await processRoutineJob({ db, messenger: m }, job)).toEqual({ sent: 1 });
-      expect(sent[0].text).toContain("1 отложенный вопрос");
+      expect(sent[0].text).toContain("Вернула отложенные по вашей просьбе: 1.");
       expect(sent[1].buttons?.flat().map((b) => b.data)).toContain(`d:a:${d.id}`); // карточка пришла заново с кнопками
     });
   });
