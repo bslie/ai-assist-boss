@@ -11,6 +11,8 @@ export interface Button {
 export interface Messenger {
   send(chatId: string, text: string, buttons?: Button[][]): Promise<{ messageId: string }>;
   edit(chatId: string, messageId: string, text: string, buttons?: Button[][]): Promise<void>;
+  /** Сообщение в личный чат от имени аккаунта руководителя (Telegram Business). Только после подтверждения. */
+  sendBusiness?(connectionId: string, chatId: string, text: string, replyToMessageId?: number): Promise<void>;
 }
 
 /** Короткоживущее состояние диалога (например, «жду текст правки»). Redis в воркере, память в тестах. */

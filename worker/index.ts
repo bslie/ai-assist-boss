@@ -51,7 +51,7 @@ async function main() {
 
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const state = redisState();
-  const bot = token ? createBot(token, db, state, { learns }) : null;
+  const bot = token ? createBot(token, db, state, { learns, llm }) : null;
   const messenger = bot ? createMessenger(bot.api) : createConsoleMessenger(log);
   if (!bot) log("TELEGRAM_BOT_TOKEN не задан: бот выключен, сообщения идут в лог");
 

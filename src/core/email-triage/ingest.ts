@@ -26,6 +26,8 @@ export interface IncomingEmail extends RawEmail {
   recipients?: readonly string[];
   /** Эталон из датасета, только для eval. */
   expectedAction?: EmailAction;
+  /** Ответ идёт не письмом, а сообщением в Telegram Business: карточка получает другой инструмент. */
+  reply?: { tool: string; args: Record<string, string | number> };
 }
 
 export interface IngestOptions {
@@ -192,7 +194,7 @@ export async function ingestEmails(
           contextSummary: c.summary,
           gateReasons: decision.reasons,
           aiRecommendation: "Спросить руководителя",
-          proposedPayload: { tool: "mail.reply", args: { to: email.senderEmail, subject: email.subject } },
+          proposedPayload: email.reply ?? { tool: "mail.reply", args: { to: email.senderEmail, subject: email.subject } },
           draftText,
         },
       });

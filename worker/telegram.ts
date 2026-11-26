@@ -4,7 +4,10 @@
  */
 import { Bot, GrammyError, type Api } from "grammy";
 import type { PrismaClient } from "@/generated/prisma/client";
+import { createDraftGenerator } from "@/core/learning/draft";
+import type { LlmClient } from "@/core/llm";
 import { handleStart, listRoles } from "@/core/telegram/bindings";
+import { handleBusinessConnection, handleBusinessMessage } from "@/core/telegram/business";
 import { dispatchPendingForEmployee } from "@/core/tasks/dispatch";
 import { handleCallback, handleText } from "@/core/telegram/handlers";
 import type { Button, Messenger, StateStore } from "@/core/telegram/types";
@@ -27,6 +30,13 @@ export function createMessenger(api: Api): Messenger {
         throw e;
       }
     },
+    async sendBusiness(connectionId, chatId, text, replyToMessageId) {
+      await api.sendMessage(chatId, text, {
+        business_connection_id: connectionId,
+        parse_mode: "HTML",
+        ...(replyToMessageId ? { reply_parameters: { message_id: replyToMessageId } } : {}),
+      });
+    },
   };
 }
 
@@ -41,14 +51,42 @@ export function createConsoleMessenger(log: (s: string) => void = console.log): 
     async edit(chatId, messageId, text) {
       log(`[telegram:dry-run] edit ${chatId}/${messageId}: ${text.replace(/\n/g, " | ").slice(0, 200)}`);
     },
+    async sendBusiness(connectionId, chatId, text) {
+      log(`[telegram:dry-run] business ${connectionId} -> ${chatId}: ${text.replace(/\n/g, " | ").slice(0, 200)}`);
+    },
   };
 }
 
-export function createBot(token: string, db: PrismaClient, state: StateStore, opts: { learns?: boolean } = {}): Bot {
+export function createBot(token: string, db: PrismaClient, state: StateStore, opts: { learns?: boolean; llm?: LlmClient } = {}): Bot {
   const bot = new Bot(token);
   const messenger = createMessenger(bot.api);
   const deps = { db, messenger, state, learns: opts.learns };
   const html = { parse_mode: "HTML" as const };
+
+  // Telegram Business. Идёт раньше фильтра личных чатов: у business_connection нет chat.
+  // В лог: только итог, без текста и идентификаторов.
+  bot.on("business_connection", async (ctx) => {
+    const c = ctx.businessConnection;
+    const r = await handleBusinessConnection(db, {
+      connectionId: c.id,
+      userId: String(c.user.id),
+      userChatId: String(c.user_chat_id),
+      canReply: Boolean(c.rights?.can_reply),
+      isEnabled: c.is_enabled,
+    });
+    console.log(`[telegram] business_connection: ${r.status}${r.status === "skipped" ? ` (${r.reason})` : ""}`);
+  });
+  bot.on("business_message:text", async (ctx) => {
+    const m = ctx.businessMessage;
+    const connectionId = m.business_connection_id;
+    if (!connectionId || !m.from) return;
+    const draftLlm = opts.llm;
+    const r = await handleBusinessMessage(
+      { db, messenger, llm: opts.llm, draft: draftLlm ? createDraftGenerator(db, draftLlm) : undefined },
+      { connectionId, chatId: String(m.chat.id), messageId: String(m.message_id), fromUserId: String(m.from.id), fromIsBot: m.from.is_bot, text: m.text },
+    );
+    console.log(`[telegram] business_message: ${r.status}${r.status === "skipped" ? ` (${r.reason})` : ""}`);
+  });
 
   // Работаем только в личных чатах: в группах карточки руководителя показывать нельзя.
   // В лог идёт только тип апдейта и чата, без текста и идентификаторов.

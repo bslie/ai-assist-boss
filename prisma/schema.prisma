@@ -14,26 +14,26 @@ enum ToolPermission {
 }
 
 enum EmailCategory {
-  HR                // кадры
-  MANAGEMENT        // руководство
-  MONEY             // деньги и бюджеты
+  HR // кадры
+  MANAGEMENT // руководство
+  MONEY // деньги и бюджеты
   CLIENT_COMMITMENT // обязательства клиентам
-  INVITATION        // приглашения
-  REPORT            // отчёты
-  STATUS            // статусы
-  SALES             // продажи / КП
-  ACCESS            // доступы
-  CLIENT_SUPPORT    // клиенты (типовые обращения, жалобы)
-  NEWSLETTER        // рассылки
-  CALENDAR          // календарь
+  INVITATION // приглашения
+  REPORT // отчёты
+  STATUS // статусы
+  SALES // продажи / КП
+  ACCESS // доступы
+  CLIENT_SUPPORT // клиенты (типовые обращения, жалобы)
+  NEWSLETTER // рассылки
+  CALENDAR // календарь
 }
 
 enum EmailAction {
   ASK_LEADER // спросить_руководителя
-  DIGEST     // в_сводку
-  DELEGATE   // делегировать
-  IGNORE     // игнорировать
-  AUTO       // авто
+  DIGEST // в_сводку
+  DELEGATE // делегировать
+  IGNORE // игнорировать
+  AUTO // авто
 }
 
 enum DecisionStatus {
@@ -49,8 +49,8 @@ enum TaskStatus {
   NEW
   ACCEPTED
   IN_PROGRESS
-  REVIEW           // сдано исполнителем, проверяет ИИ
-  RETURNED         // ИИ вернул на доработку
+  REVIEW // сдано исполнителем, проверяет ИИ
+  RETURNED // ИИ вернул на доработку
   READY_FOR_LEADER // проверено ИИ, ждёт «Принять»
   DONE
   ESCALATED
@@ -79,18 +79,19 @@ model Leader {
   shadowMode         Boolean  @default(false) // P2
   createdAt          DateTime @default(now())
 
-  employees  Employee[]
-  bindings   TelegramBinding[]
-  connectors Connector[]
-  rules      Rule[]
-  routines   Routine[]
-  emails     EmailItem[]
-  tasks      Task[]
-  decisions  Decision[]
-  meetings   Meeting[]
-  memories   Memory[]
-  activity   ActivityLog[]
-  usage      UsageLog[]
+  employees           Employee[]
+  bindings            TelegramBinding[]
+  connectors          Connector[]
+  businessConnections BusinessConnection[]
+  rules               Rule[]
+  routines            Routine[]
+  emails              EmailItem[]
+  tasks               Task[]
+  decisions           Decision[]
+  meetings            Meeting[]
+  memories            Memory[]
+  activity            ActivityLog[]
+  usage               UsageLog[]
 }
 
 model Employee {
@@ -124,6 +125,23 @@ model TelegramBinding {
 
   @@unique([chatId, leaderId, employeeId])
   @@index([chatId])
+}
+
+// Подключение Telegram Business: бот работает в личных чатах аккаунта руководителя.
+// Руководитель определяется по его LEADER-привязке к чату userChatId (fail closed: нет привязки — нет записи).
+model BusinessConnection {
+  id           String   @id @default(cuid())
+  connectionId String   @unique // business_connection_id из Telegram
+  leaderId     String
+  leader       Leader   @relation(fields: [leaderId], references: [id], onDelete: Cascade)
+  userId       String // Telegram user id владельца аккаунта: его собственные сообщения не разбираем
+  userChatId   String
+  canReply     Boolean  @default(false)
+  isEnabled    Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([leaderId])
 }
 
 model Connector {

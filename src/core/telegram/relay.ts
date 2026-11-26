@@ -6,6 +6,7 @@ import type { LeaderEvent } from "../events";
 import { proposeLearning } from "../learning/propose";
 import type { LlmClient } from "../llm";
 import { dispatchTask, executeApprovedToolCall, type DispatchDeps } from "../tasks/dispatch";
+import { executeBusinessReply } from "./business";
 import { refreshDecisionCard, sendDecisionCard } from "./cards";
 
 export interface RelayDeps extends DispatchDeps {
@@ -28,6 +29,9 @@ export async function relayEvent(deps: RelayDeps, leaderId: string, e: LeaderEve
     const res = await executeApprovedToolCall(deps, leaderId, id);
     const parts = [`карточка ${id} обновлена`];
     if (res) parts.push(`действие: ${res.status}`);
+    // Ответ в личный чат от аккаунта руководителя (Telegram Business): тоже только после утверждения и шлюза.
+    const reply = await executeBusinessReply(deps, leaderId, id);
+    if (reply) parts.push(`ответ в чат: ${reply.status}`);
     // Правка руководителя → фоновый анализ: нет ли устойчивого правила для памяти.
     if (e.data.status === "EDITED_APPROVED" && deps.llm) {
       const l = await proposeLearning({ db: deps.db, messenger: deps.messenger, llm: deps.llm }, leaderId, id);
