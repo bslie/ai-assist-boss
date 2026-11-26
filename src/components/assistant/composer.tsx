@@ -5,7 +5,7 @@ import { ArrowUp, ChevronDown, Mic } from "lucide-react";
 import type { ChatReply } from "@/core/chat";
 import { cn } from "@/lib/utils";
 
-const SUGGESTIONS = ["Что на сегодня?", "Ответь Павловой, что в четверг", "Запомни: вендоров в архив"];
+const SUGGESTIONS = ["Что на сегодня?", "Какие встречи можно пропустить?", "Ответь Павловой, что в четверг", "Запомни: вендоров в архив"];
 
 interface Msg {
   from: "me" | "bot";
@@ -42,12 +42,14 @@ export function Composer({ leaderId }: { leaderId: string }) {
   async function send(raw: string) {
     const t = raw.trim();
     if (!t || busy) return;
+    // Предыдущие реплики уходят вместе с вопросом: помощник помнит, о чём шла речь.
+    const history = msgs.slice(-8).map((m) => ({ from: m.from, text: m.draft ? `${m.text}\n${m.draft}` : m.text }));
     setText("");
     setOpen(true);
     setMsgs((m) => [...m, { from: "me", text: t }]);
     setBusy(true);
     try {
-      const res = await fetch(`/api/chat${q}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: t }) });
+      const res = await fetch(`/api/chat${q}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: t, history }) });
       const j = (await res.json().catch(() => ({}))) as Partial<ChatReply> & { error?: string };
       setMsgs((m) => [
         ...m,

@@ -29,7 +29,7 @@ export async function POST(req: Request) {
   }
   const llm = new LlmClient({ provider, cache: new FileCache(CACHE_FILE), usage: dbUsageSink(db) });
   try {
-    return NextResponse.json(await handleChat(db, llm, auth.leaderId, body.data.text));
+    return NextResponse.json(await handleChat(db, llm, auth.leaderId, body.data.text, body.data.history));
   } catch (e) {
     return jsonError(502, `Не смогла разобрать: ${(e as Error).message}`);
   }

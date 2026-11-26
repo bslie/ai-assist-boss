@@ -4,6 +4,7 @@
  * Внешних эффектов у чата нет: ответ на письмо возвращается как ПРЕДЛОЖЕНИЕ с кнопкой, которая
  * идёт обычным путём решения карточки; правила проходят те же проверки, что и страница «Как я работаю».
  */
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { PrismaClient } from "@/generated/prisma/client";
 import { buildDecisionCards, getToday, plural } from "./dashboard";
@@ -14,7 +15,14 @@ import { isSafeRule } from "./learning/extract";
 import type { LlmClient } from "./llm";
 import { createRule } from "./rules";
 
-export const ChatInputSchema = z.object({ text: z.string().trim().min(1).max(1000) });
+export const ChatInputSchema = z.object({
+  text: z.string().trim().min(1).max(1000),
+  /** Последние реплики: помощник помнит, о чём шла речь. */
+  history: z
+    .array(z.object({ from: z.enum(["me", "bot"]), text: z.string().max(2000) }))
+    .max(12)
+    .optional(),
+});
 
 export interface ChatAction {
   label: string;
@@ -28,59 +36,105 @@ export interface ChatReply {
   actions?: ChatAction[];
 }
 
-const IntentSchema = z.object({
-  intent: z.enum(["RULE", "STYLE", "REPLY", "UNKNOWN"]),
+const ActionSchema = z.object({
+  kind: z.enum(["RULE", "STYLE", "REPLY"]),
   /** RULE: что делать с письмами категории. */
-  rule: z
-    .object({
-      name: z.string().min(1).max(120),
-      category: z.enum(EMAIL_CATEGORIES),
-      action: z.enum(EMAIL_ACTIONS),
-    })
-    .nullable(),
+  rule: z.object({ name: z.string().min(1).max(120), category: z.enum(EMAIL_CATEGORIES), action: z.enum(EMAIL_ACTIONS) }).nullable(),
   /** STYLE: правило о манере письма одним предложением. */
   style: z.string().max(240).nullable(),
-  /** REPLY: кому (имя или фамилия как сказал руководитель) и что ответить по смыслу. */
+  /** REPLY: кому (как назвал руководитель) и что ответить по смыслу. */
   reply: z.object({ to: z.string().min(1), gist: z.string().min(1).max(500) }).nullable(),
 });
 
+const AgentSchema = z.object({
+  /** Свободный ответ по делу. Пустой, если сделано действие: его итог сообщит система. */
+  answer: z.string().max(1500),
+  actions: z.array(ActionSchema).max(2),
+});
+
 const SYSTEM = [
-  "Ты разбираешь короткую реплику руководителя к ИИ-помощнику. Верни одно намерение.",
-  "RULE: руководитель объясняет, как поступать с входящими письмами определённого вида («вендоров в архив», «отчёты в сводку»).",
-  "Заполни rule: category и action (ASK_LEADER — спросить меня, DIGEST — в сводку, DELEGATE — передать, IGNORE — в архив, AUTO — решить самой).",
-  "Категории: " + EMAIL_CATEGORIES.map((c) => `${c} (${CATEGORY_HELP[c]})`).join("; ") + ".",
-  "STYLE: правило о манере письма и ответов («пиши короче», «обращайся на вы»). Заполни style: одно предложение в повелительном наклонении.",
-  "REPLY: «ответь <кому>, что …». Заполни reply: to — как назван адресат, gist — что нужно ответить, своими словами, без выдумывания деталей.",
-  "UNKNOWN: всё остальное, в том числе вопросы и болтовня. Лишние поля ставь в null.",
+  "Ты ИИ-помощник руководителя и разговариваешь с ним как толковый ассистент: свободно, по-человечески, коротко, по-русски, на «вы».",
+  "Отвечай на любые вопросы о его дне, встречах, задачах, письмах и правилах, опираясь ТОЛЬКО на контекст ниже.",
+  "Если в контексте нет данных для ответа, скажи об этом прямо, ничего не выдумывай. Если вопрос про выбор (что пропустить, что перенести), дай конкретную рекомендацию и коротко объясни почему, учитывая профиль и защищённые блоки.",
+  "Ты пока не можешь сама переносить встречи, писать в календарь или отправлять письма: говори «предлагаю», а не «сделала». Неясный вопрос уточни одним встречным вопросом.",
+  "Действия (actions) добавляй только когда руководитель явно просит: RULE — как поступать с письмами вида («вендоров в архив»), STYLE — манера письма («пиши короче»), REPLY — «ответь <кому>, что …».",
+  "Для RULE: category из списка и action (ASK_LEADER — спросить меня, DIGEST — в сводку, DELEGATE — передать, IGNORE — в архив, AUTO — решить самой). Категории: " +
+    EMAIL_CATEGORIES.map((c) => `${c} (${CATEGORY_HELP[c]})`).join("; ") + ".",
+  "STYLE — одно предложение в повелительном наклонении. REPLY.gist — суть ответа без выдуманных деталей.",
+  "Если есть действие, answer оставь пустой строкой: результат действия сообщит система. Не утверждай, что что-то запомнила или отправила.",
 ].join(" ");
 
 const STATUS_RE = /^\s*(что\s+(у\s+нас\s+)?на\s+сегодня|план\s+(на\s+)?(день|сегодня)|что\s+нового|что\s+горит)\W*$/i;
 
-export const HELP_TEXT =
-  "Я умею три вещи: рассказать план дня («Что на сегодня?»), запомнить правило («Запомни: рассылки вендоров в архив», «Пиши короче») " +
-  "и подготовить ответ на письмо («Ответь Павловой, что в четверг»). Решения по карточкам принимаете вы.";
+export const HELP_TEXT = "Не уверена, что поняла. Спросите про день, встречи или задачи, попросите запомнить правило или подготовить ответ на письмо.";
+
+/** Снимок данных руководителя для модели: только его, только нужное для разговора. */
+export async function buildChatContext(db: PrismaClient, leaderId: string): Promise<string> {
+  const [t, leader, rules, memories] = await Promise.all([
+    getToday(db, leaderId),
+    db.leader.findFirstOrThrow({ where: { id: leaderId }, select: { name: true, role: true, protectedBlocks: true, profileMarkdown: true, budgetAutoLimit: true } }),
+    db.rule.findMany({ where: { leaderId }, select: { name: true, action: true }, take: 30 }),
+    db.memory.findMany({ where: { leaderId, isActive: true }, select: { ruleText: true }, take: 20 }),
+  ]);
+  const lines = [
+    `Сейчас: ${t.now} (Москва). Руководитель: ${leader.name}, ${leader.role}.`,
+    `Защищённые блоки календаря: ${leader.protectedBlocks.join(", ") || "нет"}. Порог автосогласования денег: ${leader.budgetAutoLimit} ₽.`,
+    "",
+    "День (встречи и просроченные задачи):",
+    ...t.day.map((d) => `- ${d.time} ${d.title}${d.note ? ` [${d.note}]` : ""}${d.details.length ? ` (${d.details.join("; ")})` : ""}`),
+    "",
+    `Ждут решения руководителя: ${t.decisions.length}.`,
+    ...t.decisions.map((c) => `- ${c.tag}: «${c.title}» от ${c.from || "—"}: ${c.summary}`),
+    "",
+    `Главное на сегодня: ${t.priorities.join("; ") || "—"}.`,
+    `Правила обработки писем: ${rules.map((r) => `${r.name} → ${r.action}`).join("; ") || "нет"}.`,
+    `Выученные правила стиля: ${memories.map((m) => m.ruleText).join("; ") || "нет"}.`,
+    "",
+    "Профиль руководителя (выдержка):",
+    leader.profileMarkdown.slice(0, 5000),
+  ];
+  return lines.join("\n");
+}
 
 const norm = (s: string) => s.toLowerCase().replaceAll("ё", "е");
 /** Ищем по основе слова: «Павловой» ↔ «Павлова». */
 const stem = (w: string) => norm(w).slice(0, Math.max(3, norm(w).length - 2));
 
-export async function handleChat(db: PrismaClient, llm: LlmClient, leaderId: string, text: string): Promise<ChatReply> {
+export async function handleChat(
+  db: PrismaClient,
+  llm: LlmClient,
+  leaderId: string,
+  text: string,
+  history: { from: "me" | "bot"; text: string }[] = [],
+): Promise<ChatReply> {
   if (STATUS_RE.test(text)) return { text: await statusText(db, leaderId) };
 
-  const parsed = await llm.generateStructured({
+  const context = await buildChatContext(db, leaderId);
+  const dialog = history.slice(-8).map((m) => `${m.from === "me" ? "Руководитель" : "Помощник"}: ${m.text}`).join("\n");
+  const res = await llm.generateStructured({
     leaderId,
     pipeline: "CHAT",
-    schema: IntentSchema,
-    system: SYSTEM,
-    prompt: text,
-    cacheKey: `chat\u0000${norm(text)}`,
-    temperature: 0,
+    schema: AgentSchema,
+    system: `${SYSTEM}\n\nКОНТЕКСТ\n${context}`,
+    prompt: `${dialog ? `Предыдущий разговор:\n${dialog}\n\n` : ""}Руководитель: ${text}`,
+    cacheKey: `chat\u0000${createHash("sha256").update(`${context}\u0000${dialog}\u0000${text}`).digest("hex")}`,
+    temperature: 0.2,
   });
 
-  if (parsed.intent === "RULE" && parsed.rule) return addRule(db, leaderId, text, parsed.rule);
-  if (parsed.intent === "STYLE" && parsed.style) return addStyle(db, leaderId, parsed.style);
-  if (parsed.intent === "REPLY" && parsed.reply) return proposeReply(db, llm, leaderId, parsed.reply);
-  return { text: HELP_TEXT };
+  // Действия исполняет код, и его слово о результате — последнее: модель не вправе сказать «запомнила» за него.
+  const replies: ChatReply[] = [];
+  for (const a of res.actions) {
+    if (a.kind === "RULE" && a.rule) replies.push(await addRule(db, leaderId, text, a.rule));
+    else if (a.kind === "STYLE" && a.style) replies.push(await addStyle(db, leaderId, a.style));
+    else if (a.kind === "REPLY" && a.reply) replies.push(await proposeReply(db, llm, leaderId, a.reply));
+  }
+  if (replies.length === 0) return { text: res.answer.trim() || HELP_TEXT };
+  const lead = replies.length > 1 || !res.answer.trim() ? [] : [res.answer.trim()];
+  return {
+    text: [...lead, ...replies.map((r) => r.text)].join("\n\n"),
+    draft: replies.find((r) => r.draft)?.draft,
+    actions: replies.flatMap((r) => r.actions ?? []),
+  };
 }
 
 async function statusText(db: PrismaClient, leaderId: string): Promise<string> {
@@ -101,7 +155,7 @@ async function statusText(db: PrismaClient, leaderId: string): Promise<string> {
   return lines.join("\n");
 }
 
-async function addRule(db: PrismaClient, leaderId: string, original: string, rule: NonNullable<z.infer<typeof IntentSchema>["rule"]>): Promise<ChatReply> {
+async function addRule(db: PrismaClient, leaderId: string, original: string, rule: NonNullable<z.infer<typeof ActionSchema>["rule"]>): Promise<ChatReply> {
   const res = await createRule(db, leaderId, {
     name: rule.name,
     description: original.slice(0, 500),
