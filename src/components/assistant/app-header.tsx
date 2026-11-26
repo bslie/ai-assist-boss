@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 const NAV = [
   { href: "/", label: "Разговор" },
   { href: "/rules", label: "Как я работаю" },
+  { href: "/profile", label: "Профиль" },
   { href: "/connectors", label: "Подключения" },
 ];
 
@@ -22,7 +23,7 @@ export function AppHeader({ title }: { title: string }) {
         </svg>
         <div className="font-serif text-lg font-medium">{title}</div>
       </div>
-      <nav aria-label="Разделы" className="-mx-1 flex w-full gap-0.5 sm:ml-auto sm:mx-0 sm:w-auto sm:gap-1">
+      <nav aria-label="Разделы" className="-mx-1 flex w-full gap-0.5 overflow-x-auto sm:ml-auto sm:mx-0 sm:w-auto sm:gap-1">
         {NAV.map((n) => {
           const active = n.href === "/" ? pathname === "/" : pathname.startsWith(n.href);
           return (

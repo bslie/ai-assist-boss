@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { SESSION_COOKIE, readSessionToken } from "@/core/auth/session";
 
 // Страницы под входом. API проверяет сессию сам (см. requireUser), публичные маршруты (avatar, webhooks) не трогаем.
-const PROTECTED = ["/", "/rules", "/connectors", "/control"];
+const PROTECTED = ["/", "/rules", "/profile", "/tasks", "/routines", "/metrics", "/connectors", "/control"];
 
 const isProtected = (p: string) => PROTECTED.some((base) => (base === "/" ? p === "/" : p === base || p.startsWith(base + "/")));
 
@@ -24,5 +24,5 @@ export function proxy(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/", "/login", "/rules/:path*", "/connectors/:path*", "/control/:path*"],
+  matcher: ["/", "/login", "/rules/:path*", "/profile/:path*", "/tasks/:path*", "/routines/:path*", "/metrics/:path*", "/connectors/:path*", "/control/:path*"],
 };

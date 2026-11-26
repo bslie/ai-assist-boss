@@ -1,20 +1,13 @@
 import { Suspense } from "react";
 import { LearnedRules } from "@/components/assistant/learned-rules";
 import { RuleInput } from "@/components/assistant/rule-input";
+import { BudgetLimit, ProtectedBlocks, RuleList, type RuleItem } from "@/components/assistant/rules-panel";
+import { readyClock } from "@/core/clock";
 import { listLearned } from "@/core/memory";
+import { isLockedCategory } from "@/core/policy-gate";
+import { listRules } from "@/core/rules";
 import { db } from "@/db/client";
 import { getCurrentLeader } from "@/lib/current-leader";
-
-async function Learned() {
-  const leader = await getCurrentLeader();
-  if (!leader) return null;
-  const rules = await listLearned(db, leader.id);
-  return <LearnedRules leaderId={leader.id} rules={rules.map((r) => ({ id: r.id, ruleText: r.ruleText }))} />;
-}
-
-const Chip = ({ children }: { children: React.ReactNode }) => (
-  <span className="inline-block rounded-full border border-[#3d3931] bg-raised px-3 font-sans text-xl">{children}</span>
-);
 
 const Label = ({ color, children, id }: { color: string; children: React.ReactNode; id: string }) => (
   <div id={id} className="flex items-center gap-2.5 text-[13px] font-semibold" style={{ color }}>
@@ -23,46 +16,87 @@ const Label = ({ color, children, id }: { color: string; children: React.ReactNo
   </div>
 );
 
-export default function RulesPage() {
-  return (
-    <main className="mx-auto flex w-full max-w-[860px] flex-col gap-14 px-5 pb-24 pt-12 sm:px-10">
-      <h1 className="font-serif text-[clamp(34px,5vw,52px)] font-normal leading-[1.1] tracking-[-0.02em]">
-        Вот как я с вами работаю. Скажите, если что-то нужно поменять.
-      </h1>
+async function Rules() {
+  const leader = await getCurrentLeader();
+  if (!leader) return null;
+  const clk = await readyClock();
+  const now = clk.now();
+  const [{ settings, rules }, learned] = await Promise.all([listRules(db, leader.id), listLearned(db, leader.id)]);
 
+  const items: RuleItem[] = rules
+    // Просроченные «на неделю» уже не действуют: не показываем их как действующие.
+    .filter((r) => !r.expiresAt || r.expiresAt > now)
+    .map((r) => {
+      const cond = (r.condition as { category?: string; senderEmail?: string } | null) ?? {};
+      return {
+        id: r.id,
+        name: r.name,
+        description: r.description,
+        action: r.action,
+        category: cond.category ?? null,
+        senderEmail: cond.senderEmail ?? null,
+        isSystemLocked: r.isSystemLocked,
+        locked: Boolean(cond.category && isLockedCategory(cond.category)),
+        expiresAt: r.expiresAt ? r.expiresAt.toISOString() : null,
+      };
+    });
+  const locked = items.filter((r) => r.isSystemLocked);
+  const mine = items.filter((r) => !r.isSystemLocked);
+  const auto = mine.filter((r) => r.action !== "ASK_LEADER");
+  const ask = mine.filter((r) => r.action === "ASK_LEADER");
+
+  return (
+    <>
       <section aria-labelledby="a" className="flex flex-col gap-4">
         <Label id="a" color="var(--sage)">Делаю сама</Label>
-        <p className="font-serif text-[26px] leading-[1.7]">
-          Рассылки и вендоров <Chip>отправляю в архив</Chip>, статусы и отчёты <Chip>складываю в утреннюю сводку</Chip>, встречи в рабочее время <Chip>подтверждаю сама</Chip>. Ежедневные планёрки <Chip>закрывает аватар</Chip>, а протокол я пришлю вам.
-        </p>
-        <div className="text-sm text-dim">Одно из этих правил я выучила сама: вы три раза подряд подтверждали такие встречи без правок.</div>
+        <RuleList leaderId={leader.id} rules={auto} />
       </section>
 
       <section aria-labelledby="b" className="flex flex-col gap-4">
         <Label id="b" color="var(--amber)">Показываю вам</Label>
         <p className="font-serif text-[26px] leading-[1.7]">
           Всё про деньги выше
-          <span className="mx-2 inline-flex items-center gap-1.5 rounded-full bg-amber py-0 pl-3.5 pr-1.5 font-sans text-xl font-semibold text-[#1b1305]">
-            <label htmlFor="lim" className="sr-only">Порог по деньгам, рублей</label>
-            <input id="lim" inputMode="numeric" defaultValue="0" className="min-h-9 w-14 bg-transparent text-right outline-none" />
-            <span className="pr-2.5">₽</span>
-          </span>
+          <BudgetLimit leaderId={leader.id} value={settings.budgetAutoLimit} />
           и всё незнакомое я приношу вам с готовым черновиком. Если не уверена, тоже спрашиваю.
         </p>
+        {settings.budgetAutoLimit === 0 && <div className="text-sm text-dim">Порог 0 ₽ значит, что любые деньги я согласую только с вами.</div>}
+        {ask.length > 0 && <RuleList leaderId={leader.id} rules={ask} />}
       </section>
 
       <section aria-labelledby="c" className="flex flex-col gap-4 rounded-3xl border border-line-strong bg-sunken p-8">
         <Label id="c" color="var(--coral)">Никогда не решаю одна</Label>
         <p className="font-serif text-[26px] leading-normal">
-          Кадры. Письма руководству. Обещания клиентам. Ни правилом, ни словами этого не переключить, даже если вы попросите.
+          Кадры. Письма руководству. Обещания клиентам. Деньги выше порога. Ни правилом, ни словами этого не переключить, даже если вы попросите.
         </p>
+        {locked.length > 0 && (
+          <ul className="flex flex-col gap-1 text-sm text-soft">
+            {locked.map((r) => (
+              <li key={r.id}>
+                <span className="text-foreground">{r.name}.</span> {r.description}
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
-      <Suspense fallback={<div className="text-dim">Загружаю выученные правила…</div>}>
-        <Learned />
-      </Suspense>
+      <ProtectedBlocks leaderId={leader.id} blocks={settings.protectedBlocks} />
 
-      <RuleInput />
+      <LearnedRules leaderId={leader.id} rules={learned.map((r) => ({ id: r.id, ruleText: r.ruleText }))} />
+
+      <RuleInput leaderId={leader.id} />
+    </>
+  );
+}
+
+export default function RulesPage() {
+  return (
+    <main className="mx-auto flex w-full max-w-[860px] flex-col gap-14 px-5 pb-24 pt-12 sm:px-10">
+      <h1 className="font-serif text-[clamp(34px,5vw,52px)] font-normal leading-[1.1] tracking-[-0.02em]">
+        Вот как я с вами работаю. Скажите, если что-то нужно поменять.
+      </h1>
+      <Suspense fallback={<div className="text-dim">Загружаю правила…</div>}>
+        <Rules />
+      </Suspense>
     </main>
   );
 }
