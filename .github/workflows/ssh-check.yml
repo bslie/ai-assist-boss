@@ -2,6 +2,8 @@ name: SSH check
 
 on:
   workflow_dispatch:
+  push:
+    branches: [ci/deploy-pipeline]
 
 permissions:
   contents: read
