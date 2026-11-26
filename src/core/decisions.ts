@@ -9,6 +9,7 @@ import { z } from "zod";
 import type { PrismaClient } from "@/generated/prisma/client";
 import { readyClock } from "./clock";
 import { publishEvent } from "./events";
+import { executeApprovedReply } from "./mail/send";
 
 export const ResolveSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("APPROVE") }),
@@ -78,6 +79,11 @@ export async function resolveDecision(
       },
     },
   });
+
+  // Утверждённый ответ уходит в почту через Policy Gate. Сбой отправки не отменяет решение: он виден в журнале.
+  if (input.action === "APPROVE" || input.action === "EDITED_APPROVED") {
+    await executeApprovedReply(db, leaderId, decisionId).catch(() => null);
+  }
 
   await publishEvent(leaderId, { type: "decision.updated", data: { id: decisionId, status } });
   await publishEvent(leaderId, { type: "metrics.updated", data: {} });

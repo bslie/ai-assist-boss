@@ -12,6 +12,8 @@ import { createProviderOrReplay } from "@/core/llm/providers";
 import { dbUsageSink } from "@/core/llm/usage-db";
 import { tick, type JobQueue, type RoutineJob } from "@/core/scheduler";
 import { processRoutineJob } from "@/core/telegram/morning";
+import { activeMailConnectors } from "@/core/mail/poll";
+import { pollWithPipeline } from "@/core/mail/pipeline";
 import { relayEvent } from "@/core/telegram/relay";
 import type { StateStore } from "@/core/telegram/types";
 import { db } from "@/db/client";
@@ -19,6 +21,7 @@ import { createBot, createConsoleMessenger, createMessenger } from "./telegram";
 
 const QUEUE = "routines";
 const TICK_MS = 60_000;
+const MAIL_POLL_MS = Math.max(30, Number(process.env.MAIL_POLL_SECONDS ?? 120)) * 1000;
 const log = (...a: unknown[]) => console.log(new Date().toISOString(), ...a);
 
 function redisConnection() {
@@ -93,6 +96,27 @@ async function main() {
   await runTick();
   const timer = setInterval(runTick, TICK_MS);
 
+  // Опрос почты: включённые подключения по очереди. Блокировка в Redis не даёт двум процессам разобрать одно письмо дважды.
+  let polling = false;
+  const runMailPoll = async () => {
+    if (polling) return;
+    polling = true;
+    try {
+      for (const c of await activeMailConnectors(db)) {
+        const res = await pollWithPipeline(db, c.leaderId, c.id);
+        if (res.ok) {
+          if (res.fetched > 0) log(`почта ${c.id}: писем ${res.fetched}, карточек ${res.stats.decisionsCreated}`);
+        } else if (!res.skipped) log(`почта ${c.id}: ${res.message}`);
+      }
+    } catch (e) {
+      log("опрос почты не удался:", (e as Error).message);
+    } finally {
+      polling = false;
+    }
+  };
+  void runMailPoll();
+  const mailTimer = setInterval(runMailPoll, MAIL_POLL_MS);
+
   if (bot) {
     void bot.start({ onStart: (me) => log(`бот @${me.username} запущен`) });
   }
@@ -100,6 +124,7 @@ async function main() {
   const shutdown = async () => {
     log("останавливаюсь…");
     clearInterval(timer);
+    clearInterval(mailTimer);
     await bot?.stop();
     await unsubscribe();
     await worker.close();

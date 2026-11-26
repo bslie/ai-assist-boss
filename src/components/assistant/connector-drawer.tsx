@@ -120,6 +120,27 @@ function Body({ item, leaderId, api, onClose, onChanged }: Props & { item: Catal
           </div>
         )}
 
+        {connected && item.state === "connected" && (item.moduleId === "BUILTIN_IMAP" || item.moduleId === "BUILTIN_GRAPH") && (
+          <section className="flex flex-col gap-2.5 rounded-2xl border border-line bg-ink p-4">
+            <div className="text-[15px]">Проверка почты</div>
+            <div className={`text-[13px] ${item.lastSync?.error ? "text-coral" : "text-dim"}`}>
+              {!item.lastSync
+                ? "Автоматически раз в пару минут. Пока ни разу не проверяла."
+                : item.lastSync.error
+                  ? `Последняя проверка не удалась: ${item.lastSync.error}`
+                  : `Последняя проверка: ${new Date(item.lastSync.at).toLocaleString("ru-RU", { timeZone: "Europe/Moscow", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}, новых писем: ${item.lastSync.fetched}.`}
+            </div>
+            <Button
+              variant="outline"
+              className="h-11 self-start rounded-full px-5"
+              disabled={busy}
+              onClick={() => run(() => api<{ fetched: number; decisions: number }>(`/api/connectors/${item.connectorId}/poll?${q}`, { method: "POST" }), "Проверила", async (d) => { say(true, d.fetched ? `Новых писем: ${d.fetched}, карточек: ${d.decisions}` : "Новых писем нет"); await onChanged(); })}
+            >
+              {busy ? "Проверяю…" : "Проверить сейчас"}
+            </Button>
+          </section>
+        )}
+
         {!connected && item.sees.length > 0 && (
           <section className="flex flex-col gap-2.5">
             <h3 className="text-xs font-medium uppercase tracking-[0.08em] text-dim">Что я смогу</h3>

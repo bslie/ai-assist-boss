@@ -24,6 +24,19 @@ export async function getToolPermission(
   return parsed.success ? (parsed.data[toolName] ?? null) : null;
 }
 
+/** Права инструмента конкретного подключения (когда подключений одного типа может быть несколько). */
+export async function getConnectorToolPermission(
+  db: PrismaClient,
+  leaderId: string,
+  connectorId: string,
+  toolName: string,
+): Promise<ToolPermission | null> {
+  const connector = await db.connector.findFirst({ where: { id: connectorId, leaderId, isActive: true } });
+  if (!connector) return null;
+  const parsed = PermissionsSchema.safeParse(connector.toolPermissions);
+  return parsed.success ? (parsed.data[toolName] ?? null) : null;
+}
+
 export async function loadGateLeader(db: PrismaClient, leaderId: string): Promise<GateLeader> {
   const l = await db.leader.findFirstOrThrow({
     where: { id: leaderId },

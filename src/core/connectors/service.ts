@@ -6,6 +6,7 @@
 import { z } from "zod";
 import type { Prisma, PrismaClient } from "@/generated/prisma/client";
 import { decryptJson, encryptJson, SecretsNotConfigured, secretsConfigured } from "./crypto";
+import { verifyMailCredentials } from "../mail/factory";
 import { probeMcp, type McpTool } from "./mcp";
 import { getModule, MODULES } from "./modules";
 import { PermSchema, type ConnectorManifest, type ConnectorTool, type Perm } from "./types";
@@ -45,15 +46,27 @@ export interface CatalogItem {
   filledSecrets: string[];
   mcpUrl: string | null;
   account: string | null;
+  /** Последний опрос почты (только для почтовых модулей). */
+  lastSync: LastSync | null;
   tools: CatalogTool[];
   multiple: boolean;
 }
 
-interface Stored {
+export interface LastSync {
+  at: string;
+  /** Сколько писем взяла в этот раз. */
+  fetched: number;
+  error?: string;
+}
+
+export interface Stored {
   values?: Record<string, string>;
   tokens?: { access_token?: string; refresh_token?: string; expires_at?: number };
   account?: string;
   mcpTools?: McpTool[];
+  /** Курсор опроса почты: непрозрачная строка реализации. */
+  cursor?: string;
+  lastSync?: LastSync;
 }
 
 const PermsRecord = z.record(z.string(), PermSchema);
@@ -147,6 +160,7 @@ function itemFor(m: ConnectorManifest, row: Row | null): CatalogItem {
     filledSecrets: filled,
     mcpUrl: row?.mcpUrl ?? null,
     account: stored?.account ?? values.email ?? null,
+    lastSync: stored?.lastSync ?? null,
     tools: toolsFor(m, row, stored),
     multiple: Boolean(m.multiple),
   };
@@ -167,6 +181,12 @@ export async function listCatalog(db: PrismaClient, leaderId: string): Promise<C
 export type Result<T> = { ok: true; value: T } | { ok: false; code: "NOT_FOUND" | "INVALID" | "CONFLICT" | "UNAVAILABLE"; message: string };
 const fail = (code: Extract<Result<never>, { ok: false }>["code"], message: string): Result<never> => ({ ok: false, code, message });
 
+/** Служебные данные подключения (курсор, итог опроса) без смены доступов. */
+export async function patchStored(db: PrismaClient, row: Row, patch: Partial<Stored>): Promise<void> {
+  const cur = decryptJson<Stored>(row.encryptedConfig) ?? {};
+  await db.connector.updateMany({ where: { id: row.id, leaderId: row.leaderId }, data: { encryptedConfig: encryptJson({ ...cur, ...patch }) } });
+}
+
 export const ConnectSchema = z.object({
   module: z.string().min(1),
   name: z.string().trim().min(1).max(80).optional(),
@@ -178,7 +198,7 @@ export type ConnectInput = z.infer<typeof ConnectSchema>;
 
 const defaultPerms = (m: ConnectorManifest) => Object.fromEntries(m.tools.map((t) => [t.name, t.default])) as Record<string, Perm>;
 
-export async function connectModule(db: PrismaClient, leaderId: string, input: ConnectInput, mcpOpts: { allowLocal?: boolean } = {}): Promise<Result<{ id: string }>> {
+export async function connectModule(db: PrismaClient, leaderId: string, input: ConnectInput, opts: { allowLocal?: boolean; /** false — не входить в ящик при подключении (тесты). */ verifyMail?: boolean } = {}): Promise<Result<{ id: string }>> {
   const m = getModule(input.module);
   if (!m) return fail("NOT_FOUND", "Такого модуля нет");
   if (m.status === "soon") return fail("UNAVAILABLE", `${m.name} появится позже`);
@@ -200,10 +220,17 @@ export async function connectModule(db: PrismaClient, leaderId: string, input: C
       if (!v) return fail("INVALID", `Заполните поле «${f.label}»`);
       values[f.key] = v;
     }
+    if (opts.verifyMail !== false) {
+      try {
+        await verifyMailCredentials(m.id, values);
+      } catch (e) {
+        return fail("INVALID", (e as Error).message);
+      }
+    }
     stored = { values, account: values.email };
   } else if (m.auth.kind === "mcp") {
     if (!input.mcpUrl) return fail("INVALID", "Укажите адрес сервера");
-    const probe = await probeMcp(input.mcpUrl, { token: input.token, allowLocal: mcpOpts.allowLocal });
+    const probe = await probeMcp(input.mcpUrl, { token: input.token, allowLocal: opts.allowLocal });
     if (!probe.ok) return fail("INVALID", probe.message);
     stored = { values: input.token ? { token: input.token } : {}, mcpTools: probe.tools, account: new URL(input.mcpUrl).hostname };
     // Новые инструменты чужого сервера всегда через руководителя.

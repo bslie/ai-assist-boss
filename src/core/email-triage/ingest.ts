@@ -23,6 +23,8 @@ const DEFAULT_SAVED_MINUTES: Record<string, number> = {
 export interface IncomingEmail extends RawEmail {
   senderName: string;
   senderRole?: string | null;
+  /** Message-ID письма: ответ уходит в ту же ветку. */
+  messageId?: string;
   recipients?: readonly string[];
   /** Эталон из датасета, только для eval. */
   expectedAction?: EmailAction;
@@ -31,6 +33,8 @@ export interface IncomingEmail extends RawEmail {
 }
 
 export interface IngestOptions {
+  /** Подключение, из которого пришла почта: по нему утверждённый ответ уйдёт обратно. */
+  connectorId?: string;
   /** Черновик ответа для карточки (стиль руководителя + Memory); необязателен. */
   /** Событие для SSE (decision.created, email.processed). Ошибки подписчика не ломают разбор. */
   emit?: (event: LeaderEvent) => Promise<void> | void;
@@ -194,7 +198,7 @@ export async function ingestEmails(
           contextSummary: c.summary,
           gateReasons: decision.reasons,
           aiRecommendation: "Спросить руководителя",
-          proposedPayload: email.reply ?? { tool: "mail.reply", args: { to: email.senderEmail, subject: email.subject } },
+          proposedPayload: email.reply ?? { tool: "mail.reply", args: { to: email.senderEmail, subject: email.subject, connectorId: opts.connectorId ?? null, externalId: email.externalId ?? null, inReplyTo: email.messageId ?? null } },
           draftText,
         },
       });

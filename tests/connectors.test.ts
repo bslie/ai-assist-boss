@@ -123,7 +123,7 @@ describe.skipIf(!dbUp)("подключения (Postgres)", () => {
   });
 
   it("доступы шифруются в БД и не попадают в каталог; повторное подключение — конфликт", async () => {
-    const r = await connectModule(db, a, imap);
+    const r = await connectModule(db, a, imap, { verifyMail: false });
     expect(r.ok).toBe(true);
     const row = await db.connector.findFirstOrThrow({ where: { leaderId: a, type: "BUILTIN_IMAP" } });
     expect(row.encryptedConfig).not.toContain("secret-app-pass");
@@ -133,7 +133,7 @@ describe.skipIf(!dbUp)("подключения (Postgres)", () => {
     expect(item.account).toBe("boss@company.ru");
     expect(item.filledSecrets).toEqual(["password"]);
     expect(JSON.stringify(item)).not.toContain("secret-app-pass");
-    expect(await connectModule(db, a, imap)).toMatchObject({ ok: false, code: "CONFLICT" });
+    expect(await connectModule(db, a, imap, { verifyMail: false })).toMatchObject({ ok: false, code: "CONFLICT" });
   });
 
   it("поле без значения отклоняется", async () => {
