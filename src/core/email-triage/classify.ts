@@ -94,7 +94,7 @@ export function routeEmail(args: {
   return { action, reasons };
 }
 
-const CATEGORY_HELP: Record<EmailCategory, string> = {
+export const CATEGORY_HELP: Record<EmailCategory, string> = {
   HR: "кадровые вопросы: найм, офферы, отпуска, увольнения, больничные, зарплаты",
   MANAGEMENT: "письма и просьбы от вышестоящего руководства к руководителю",
   MONEY: "бюджеты, скидки, закупки, оплаты, согласование сумм",

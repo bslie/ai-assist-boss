@@ -89,7 +89,7 @@ async function Today() {
       </div>
       {/* Строка ввода прилипает к низу экрана на любой ширине; на десктопе стоит в колонке под карточками. */}
       <div className="sticky bottom-0 z-10 mx-auto mt-4 grid w-full max-w-[1280px] grid-cols-1 px-4 sm:px-10 lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-14">
-        <Composer />
+        <Composer leaderId={leader.id} />
       </div>
     </>
   );
