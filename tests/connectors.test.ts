@@ -106,7 +106,7 @@ describe.skipIf(!dbUp)("подключения (Postgres)", () => {
     await db.leader.deleteMany({ where: { id: { in: [a, b] } } });
   });
 
-  const imap = { module: "BUILTIN_IMAP", values: { email: "boss@company.ru", password: "secret-app-pass", imapHost: "imap.yandex.ru", smtpHost: "smtp.yandex.ru" } };
+  const imap = { module: "BUILTIN_IMAP", values: { email: "boss@company.ru", password: "test-password", imapHost: "imap.yandex.ru", smtpHost: "smtp.yandex.ru" } };
 
   it("каталог показывает все модули; Telegram из профиля уже подключён", async () => {
     const cat = await listCatalog(db, a);
@@ -127,13 +127,13 @@ describe.skipIf(!dbUp)("подключения (Postgres)", () => {
     const r = await connectModule(db, a, imap, { verifyMail: false });
     expect(r.ok).toBe(true);
     const row = await db.connector.findFirstOrThrow({ where: { leaderId: a, type: "BUILTIN_IMAP" } });
-    expect(row.encryptedConfig).not.toContain("secret-app-pass");
+    expect(row.encryptedConfig).not.toContain("test-password");
 
     const item = (await listCatalog(db, a)).find((c) => c.moduleId === "BUILTIN_IMAP")!;
     expect(item.state).toBe("connected");
     expect(item.account).toBe("boss@company.ru");
     expect(item.filledSecrets).toEqual(["password"]);
-    expect(JSON.stringify(item)).not.toContain("secret-app-pass");
+    expect(JSON.stringify(item)).not.toContain("test-password");
     expect(await connectModule(db, a, imap, { verifyMail: false })).toMatchObject({ ok: false, code: "CONFLICT" });
   });
 
@@ -164,7 +164,7 @@ describe.skipIf(!dbUp)("подключения (Postgres)", () => {
     await updateConnector(db, a, id, { values: { email: "new@company.ru", password: "" } });
     const row = await db.connector.findFirstOrThrow({ where: { id } });
     const stored = decryptJson<{ values: Record<string, string> }>(row.encryptedConfig)!;
-    expect(stored.values).toMatchObject({ email: "new@company.ru", password: "secret-app-pass" });
+    expect(stored.values).toMatchObject({ email: "new@company.ru", password: "test-password" });
 
     expect(await updateConnector(db, b, id, { isActive: true })).toMatchObject({ ok: false, code: "NOT_FOUND" });
     expect(await removeConnector(db, b, id)).toMatchObject({ ok: false, code: "NOT_FOUND" });
