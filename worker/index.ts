@@ -8,8 +8,8 @@ import Redis from "ioredis";
 import { clock } from "@/core/clock";
 import { subscribeAllEvents } from "@/core/events";
 import { tick, type JobQueue, type RoutineJob } from "@/core/scheduler";
-import { refreshDecisionCard, sendDecisionCard } from "@/core/telegram/cards";
 import { processRoutineJob } from "@/core/telegram/morning";
+import { relayEvent } from "@/core/telegram/relay";
 import type { StateStore } from "@/core/telegram/types";
 import { db } from "@/db/client";
 import { createBot, createConsoleMessenger, createMessenger } from "./telegram";
@@ -64,15 +64,9 @@ async function main() {
 
   // Карточки решений: web/ingest публикуют события, воркер доставляет их в Telegram.
   const unsubscribe = await subscribeAllEvents((leaderId, e) => {
-    const id = typeof e.data.id === "string" ? e.data.id : null;
-    if (!id) return;
-    const run =
-      e.type === "decision.created"
-        ? sendDecisionCard(db, messenger, leaderId, id)
-        : e.type === "decision.updated"
-          ? refreshDecisionCard(db, messenger, leaderId, id)
-          : null;
-    run?.catch((err) => log(`${e.type} ${id}: не удалось обновить Telegram:`, (err as Error).message));
+    relayEvent({ db, messenger }, leaderId, e)
+      .then((what) => what && log(`событие ${e.type}: ${what}`))
+      .catch((err) => log(`событие ${e.type}: ошибка:`, (err as Error).message));
   });
 
   const runTick = async () => {

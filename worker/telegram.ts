@@ -5,6 +5,7 @@
 import { Bot, GrammyError, type Api } from "grammy";
 import type { PrismaClient } from "@/generated/prisma/client";
 import { handleStart, listRoles } from "@/core/telegram/bindings";
+import { dispatchPendingForEmployee } from "@/core/tasks/dispatch";
 import { handleCallback, handleText } from "@/core/telegram/handlers";
 import type { Button, Messenger, StateStore } from "@/core/telegram/types";
 
@@ -59,8 +60,14 @@ export function createBot(token: string, db: PrismaClient, state: StateStore): B
   });
 
   bot.command("start", async (ctx) => {
-    const reply = await handleStart(db, String(ctx.chat.id), ctx.match);
+    const chatId = String(ctx.chat.id);
+    const reply = await handleStart(db, chatId, ctx.match);
     await ctx.reply(reply.text, html);
+    // Сотрудник только что подключился: отправляем поручения, которые ждали (через Policy Gate).
+    const bindings = await db.telegramBinding.findMany({ where: { chatId, role: "EMPLOYEE", isActive: true } });
+    for (const b of bindings) {
+      if (b.employeeId) await dispatchPendingForEmployee({ db, messenger }, b.leaderId, b.employeeId);
+    }
   });
 
   bot.command("role", async (ctx) => {

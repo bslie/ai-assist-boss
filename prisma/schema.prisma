@@ -217,8 +217,12 @@ model Task {
   returnCount        Int        @default(0) // метрика «с первого раза»
   lastSubmission     String?    @db.Text
   aiReviewComment    String?    @db.Text
+  notifiedAt         DateTime? // когда исполнителю ушло поручение в Telegram (демо-время); null — ещё не отправлено
+  telegramMessageId  String? // "chatId:messageId" сообщения с поручением
   createdAt          DateTime   @default(now())
   updatedAt          DateTime   @updatedAt
+
+  @@index([leaderId, assigneeId])
 }
 
 model Decision {

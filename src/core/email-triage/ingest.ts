@@ -216,12 +216,14 @@ export async function ingestEmails(
             // TODO: LLM-формулировка измеримого критерия (SPEC 4.3.1).
             acceptanceCriteria: `Ответ или результат по письму «${email.subject}» передан отправителю`,
             sourceType: "EMAIL",
+            sourceRefId: email.externalId ?? null,
             isClientCommitment: false,
             dueAt: due,
           },
         });
         taskId = t.id;
         stats.tasksCreated++;
+
       }
     }
 
@@ -237,6 +239,9 @@ export async function ingestEmails(
         taskId,
       },
     });
+    // Воркер подхватит событие и отправит поручение исполнителю через Policy Gate.
+    // Шлём после создания EmailItem: шлюзу нужны категория и уверенность исходного письма.
+    if (taskId) await opts.emit?.({ type: "task.updated", data: { id: taskId, created: true } });
 
     const delegatedWithoutAssignee = decision.action === "DELEGATE" && !taskId;
     await db.activityLog.create({

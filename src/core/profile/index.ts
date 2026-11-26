@@ -8,7 +8,7 @@ import { z } from "zod";
 import type { Prisma, PrismaClient } from "@/generated/prisma/client";
 import { EMAIL_ACTIONS, EMAIL_CATEGORIES } from "../email-triage/classify";
 import type { LlmClient } from "../llm";
-import { isLockedCategory } from "../policy-gate";
+import { isLockedCategory, TELEGRAM_CONNECTOR } from "../policy-gate";
 
 const Category = z.enum(EMAIL_CATEGORIES);
 
@@ -165,6 +165,26 @@ export async function applyProfile(
         })),
       ],
     });
+
+    // Коннектор Telegram: права по умолчанию выводятся из профиля. Если в профиле есть правило
+    // «передавать ответственному», поручения сотрудникам идут сами (AUTO), иначе спрашиваем (APPROVE).
+    // Уже существующий коннектор не трогаем: там права, выставленные руководителем.
+    const hasConnector = await tx.connector.findFirst({ where: { leaderId, type: TELEGRAM_CONNECTOR }, select: { id: true } });
+    if (!hasConnector) {
+      const delegates = safe.allowed.some((r) => r.action === "DELEGATE");
+      await tx.connector.create({
+        data: {
+          leaderId,
+          name: "Telegram",
+          type: TELEGRAM_CONNECTOR,
+          encryptedConfig: "", // токен бота лежит в env воркера, в БД секретов нет
+          toolPermissions: {
+            "telegram.assign_task": delegates ? "AUTO" : "APPROVE",
+            "telegram.send_digest": "AUTO",
+          },
+        },
+      });
+    }
 
     for (const r of safe.routines) {
       const existing = await tx.routine.findFirst({ where: { leaderId, code: r.code, title: r.title } });
