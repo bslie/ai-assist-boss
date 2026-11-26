@@ -170,6 +170,7 @@ export async function getToday(db: PrismaClient, leaderId: string): Promise<Toda
   n("DIGEST", "отчёт или статус", "отчёта или статуса", "отчётов и статусов", "В сводку ушло");
   n("DELEGATE", "поручение", "поручения", "поручений", "Передала");
   n("AUTO", "встречу", "встречи", "встреч", "Подтвердила");
+  n("AUTO_BUDGET", "небольшую сумму в пределах порога", "небольшие суммы в пределах порога", "небольших сумм в пределах порога", "Согласовала");
 
   const overdue = (t: (typeof tasks)[number]) =>
     t.status !== "DONE" && (t.dueAt < now || t.csvStatus === "просрочена");

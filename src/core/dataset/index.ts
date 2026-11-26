@@ -2,13 +2,15 @@
  * Загрузка датасета организаторов (data/tz_dataset). Нужна сидеру и тестам.
  * Все внешние данные проходят через zod.
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import type { EmailAction } from "../email-triage/classify";
 import type { RelationType } from "../policy-gate";
 
 export const DATASET_DIR = path.resolve(process.cwd(), "data", "tz_dataset");
+/** Профили, добавленные командой: второй руководитель, дополнительные письма для демо. */
+export const PROFILES_DIR = path.resolve(process.cwd(), "data", "profiles");
 
 /** Минимальный CSV-парсер (RFC 4180): кавычки, запятые и переводы строк внутри полей. */
 export function parseCsv(text: string): Record<string, string>[] {
@@ -73,8 +75,8 @@ export interface OrgMember {
   relationType: RelationType;
 }
 
-export function loadOrg(dir = DATASET_DIR, emailDomain = "company.example") {
-  const rows = read("org_structure.csv", dir).map((r) => OrgRow.parse(r));
+export function loadOrg(dir = DATASET_DIR, emailDomain = "company.example", file = "org_structure.csv") {
+  const rows = read(file, dir).map((r) => OrgRow.parse(r));
   const toMember = (r: z.infer<typeof OrgRow>) => {
     const rel = RELATION[r.role_for_leader];
     if (!rel) throw new Error(`Unknown role_for_leader: ${r.role_for_leader}`);
@@ -135,8 +137,8 @@ export interface InboxMail {
   reason: string;
 }
 
-export function loadInbox(dir = DATASET_DIR): InboxMail[] {
-  return read("inbox.csv", dir).map((raw) => {
+export function loadInbox(dir = DATASET_DIR, file = "inbox.csv"): InboxMail[] {
+  return read(file, dir).map((raw) => {
     const r = InboxRow.parse(raw);
     const expectedAction = ACTIONS[r.expected_action];
     if (!expectedAction) throw new Error(`Unknown expected_action: ${r.expected_action}`);
@@ -175,8 +177,8 @@ export interface DatasetTask {
   source: string;
 }
 
-export function loadTasks(dir = DATASET_DIR): DatasetTask[] {
-  return read("tasks.csv", dir).map((raw) => {
+export function loadTasks(dir = DATASET_DIR, file = "tasks.csv"): DatasetTask[] {
+  return read(file, dir).map((raw) => {
     const r = TaskRow.parse(raw);
     return {
       externalId: r.id,
@@ -187,6 +189,13 @@ export function loadTasks(dir = DATASET_DIR): DatasetTask[] {
       source: r.source,
     };
   });
+}
+
+/** Зоны ответственности сотрудников (id → область); нет файла → пусто. Ключи с «_» — комментарии. */
+export function loadAreas(file = path.join(DATASET_DIR, "responsibility_areas.json")): Record<string, string> {
+  if (!existsSync(file)) return {};
+  const raw = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+  return Object.fromEntries(Object.entries(raw).filter(([k, v]) => !k.startsWith("_") && typeof v === "string")) as Record<string, string>;
 }
 
 export function loadProfileMarkdown(file = path.join(DATASET_DIR, "leader_profile.md")): string {
