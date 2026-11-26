@@ -1,0 +1,37 @@
+import type { ConnectorManifest } from "../types";
+
+export const microsoft365: ConnectorManifest = {
+  id: "BUILTIN_GRAPH",
+  name: "Microsoft 365",
+  vendor: "Microsoft",
+  category: "Почта",
+  description: "Outlook: входящие письма, ответы и календарь встреч.",
+  sees: ["Входящие письма и ветки переписки", "Календарь: встречи и свободное время", "Письма уходят только от вашего имени и по вашим правилам"],
+  letter: "M",
+  color: "#3b82f6",
+  status: "ready",
+  auth: {
+    kind: "oauth",
+    authorizeUrl: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+    tokenUrl: "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+    scopes: ["offline_access", "Mail.ReadWrite", "Mail.Send", "Calendars.ReadWrite"],
+    clientIdEnv: "MS_CLIENT_ID",
+    clientSecretEnv: "MS_CLIENT_SECRET",
+  },
+  tools: [
+    { name: "mail.read", label: "Читать входящие", description: "Разбирать письма и готовить карточки.", kind: "read", default: "AUTO" },
+    { name: "mail.archive", label: "Отправлять рассылки в архив", description: "Перемещение писем в архив.", kind: "write", default: "APPROVE" },
+    { name: "mail.send_reply", label: "Отправлять ответы", description: "Ответ на письмо от вашего имени с подписью помощника.", kind: "write", default: "APPROVE" },
+    { name: "calendar.read", label: "Смотреть календарь", description: "Свободное время и список встреч.", kind: "read", default: "AUTO" },
+    { name: "calendar.create_event", label: "Создавать встречи", description: "Подтверждение и создание внутренних встреч.", kind: "write", default: "APPROVE" },
+    {
+      name: "calendar.update_event",
+      label: "Переносить и отменять встречи",
+      description: "Изменение существующих встреч.",
+      kind: "write",
+      default: "APPROVE",
+      max: "APPROVE",
+      maxReason: "Перенос чужих встреч и защищённых блоков (стратегия, 1:1) всегда идёт через вас.",
+    },
+  ],
+};

@@ -151,3 +151,10 @@
 
 /* Страница: тонкая тёмная полоса вместо системной. */
 html { scrollbar-width: thin; scrollbar-color: #3d3931 transparent; }
+
+/* Панель подключения: выезжает справа. */
+@keyframes drawer-in { from { transform: translateX(32px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+dialog.drawer[open] { animation: drawer-in 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+dialog.drawer[open]::backdrop { animation: fade-in 260ms ease-out both; }
+@media (prefers-reduced-motion: reduce) { dialog.drawer[open], dialog.drawer[open]::backdrop { animation: none; } }
