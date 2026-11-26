@@ -92,6 +92,26 @@ model Leader {
   memories            Memory[]
   activity            ActivityLog[]
   usage               UsageLog[]
+  appUsers            AppUser[]
+}
+
+enum AppRole {
+  ADMIN  // панель управления приложением
+  LEADER // свой кабинет руководителя
+}
+
+// Учётная запись для входа в приложение: логин+пароль или Telegram (Login Widget).
+// Без привязки к руководителю (leaderId = null) доступна только ADMIN; вход без записи запрещён.
+model AppUser {
+  id           String   @id @default(cuid())
+  login        String   @unique
+  passwordHash String?  // scrypt, формат «scrypt$N$r$p$salt$hash»; null — только Telegram
+  telegramId   String?  @unique
+  displayName  String
+  role         AppRole  @default(LEADER)
+  leaderId     String?
+  leader       Leader?  @relation(fields: [leaderId], references: [id], onDelete: SetNull)
+  createdAt    DateTime @default(now())
 }
 
 model Employee {
