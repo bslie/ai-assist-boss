@@ -14,9 +14,11 @@
     "postinstall": "prisma generate"
   },
   "dependencies": {
+    "@ai-sdk/openai-compatible": "^3.0.96",
     "@base-ui/react": "^1.9.0",
     "@prisma/adapter-pg": "^7.10.1",
     "@prisma/client": "^7.10.1",
+    "ai": "^7.0.183",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.5.2",
     "dotenv": "^18.0.10",
