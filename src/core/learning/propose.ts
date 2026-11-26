@@ -25,6 +25,18 @@ export type ProposeResult =
 
 const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
 
+/** Короткий фрагмент для сравнения «было → стало». */
+export const excerpt = (s: string, max = 90): string => {
+  const one = s.replace(/\s+/g, " ").trim();
+  return one.length > max ? `${one.slice(0, max).trimEnd()}…` : one;
+};
+
+/** Сообщение руководителю (его LEADER-чатам); ошибки доставки не ломают разбор правки. */
+async function tell(deps: LearnDeps, leaderId: string, text: string) {
+  const rows = await deps.db.telegramBinding.findMany({ where: { leaderId, role: "LEADER" }, select: { chatId: true } });
+  for (const chatId of new Set(rows.map((r) => r.chatId))) await deps.messenger.send(chatId, text).catch(() => {});
+}
+
 export async function proposeLearning(deps: LearnDeps, leaderId: string, decisionId: string): Promise<ProposeResult> {
   const { db, messenger, llm } = deps;
   const d = await db.decision.findFirst({ where: { id: decisionId, leaderId } });
@@ -52,12 +64,15 @@ export async function proposeLearning(deps: LearnDeps, leaderId: string, decisio
   });
   if (!found) {
     await log("LEARNING_NONE", "Устойчивого различия в правке не найдено");
+    // Молчание после «скажу, если заметила правило» выглядит как поломка: сообщаем и о пустом результате.
+    await tell(deps, leaderId, "В этой правке постоянного правила не вижу: считаю её разовой.");
     return { status: "none" };
   }
 
   const existing = await db.memory.findMany({ where: { leaderId }, select: { ruleText: true } });
   if (existing.some((m) => norm(m.ruleText) === norm(found.rule))) {
     await log("LEARNING_DUPLICATE", `Такое правило уже есть: ${found.rule}`);
+    await tell(deps, leaderId, `Такое правило у меня уже записано: «${esc(found.rule)}»`);
     return { status: "duplicate" };
   }
 
@@ -70,8 +85,16 @@ export async function proposeLearning(deps: LearnDeps, leaderId: string, decisio
   await log("LEARNING_PROPOSED", `Предложено правило: ${found.rule}`, { memoryId: memory.id, confidence: found.confidence });
   if (chats.length === 0) return { status: "no_chat", memoryId: memory.id };
 
+  const text = [
+    `Заметила в вашей правке: <b>${esc(found.rule)}</b>`,
+    "",
+    `Было: «${esc(excerpt(d.draftText))}»`,
+    `Стало: «${esc(excerpt(d.editedText))}»`,
+    "",
+    "Запомнить на будущее?",
+  ].join("\n");
   for (const chatId of chats) {
-    await messenger.send(chatId, `Заметил правку: <b>${esc(found.rule)}</b>\nЗапомнить?`, [
+    await messenger.send(chatId, text, [
       [
         { text: "Да, запомнить", data: `m:y:${memory.id}` },
         { text: "Только этот раз", data: `m:n:${memory.id}` },

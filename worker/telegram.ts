@@ -44,10 +44,10 @@ export function createConsoleMessenger(log: (s: string) => void = console.log): 
   };
 }
 
-export function createBot(token: string, db: PrismaClient, state: StateStore): Bot {
+export function createBot(token: string, db: PrismaClient, state: StateStore, opts: { learns?: boolean } = {}): Bot {
   const bot = new Bot(token);
   const messenger = createMessenger(bot.api);
-  const deps = { db, messenger, state };
+  const deps = { db, messenger, state, learns: opts.learns };
   const html = { parse_mode: "HTML" as const };
 
   // Работаем только в личных чатах: в группах карточки руководителя показывать нельзя.
@@ -87,7 +87,10 @@ export function createBot(token: string, db: PrismaClient, state: StateStore): B
   });
 
   bot.on("message:text", async (ctx) => {
-    const reply = await handleText(deps, String(ctx.chat.id), ctx.message.text);
+    const replyTo = ctx.message.reply_to_message?.message_id;
+    const reply = await handleText(deps, String(ctx.chat.id), ctx.message.text, {
+      replyToMessageId: replyTo === undefined ? undefined : String(replyTo),
+    });
     await ctx.reply(reply, html);
   });
 

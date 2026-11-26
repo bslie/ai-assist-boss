@@ -39,12 +39,6 @@ async function main() {
   await clock.init();
   log(`демо-время: ${clock.now().toISOString()} (режим ${clock.mode})`);
 
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  const state = redisState();
-  const bot = token ? createBot(token, db, state) : null;
-  const messenger = bot ? createMessenger(bot.api) : createConsoleMessenger(log);
-  if (!bot) log("TELEGRAM_BOT_TOKEN не задан: бот выключен, сообщения идут в лог");
-
   // LLM для обучения на правках. Без неё правки просто не анализируются. Каждый вызов пишется в UsageLog.
   let llm: LlmClient | undefined;
   try {
@@ -52,6 +46,14 @@ async function main() {
   } catch (e) {
     log(`LLM не настроена (${(e as Error).message}): обучение на правках выключено`);
   }
+  // Режим повтора из кэша (без LLM_BASE_URL) правки не анализирует: не обещаем пользователю того, чего не будет.
+  const learns = Boolean(llm && process.env.LLM_BASE_URL);
+
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const state = redisState();
+  const bot = token ? createBot(token, db, state, { learns }) : null;
+  const messenger = bot ? createMessenger(bot.api) : createConsoleMessenger(log);
+  if (!bot) log("TELEGRAM_BOT_TOKEN не задан: бот выключен, сообщения идут в лог");
 
   // Очередь рутин. От дублей защищает условный захват lastRunAt в tick(), а не jobId: BullMQ молча
   // отбрасывает задачу с уже существующим id, и после сброса демо-часов рутина не сработала бы снова.

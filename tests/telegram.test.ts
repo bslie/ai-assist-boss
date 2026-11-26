@@ -200,7 +200,8 @@ describe.skipIf(!dbUp)("Telegram (Postgres)", () => {
       await sendDecisionCard(db, m, leaderId, d.id);
 
       expect(await handleCallback(deps, { chatId: chat("L"), messageId: "1", data: `d:e:${d.id}` })).toBe("Жду ваш текст");
-      expect(sent.at(-1)?.text).toContain("Пришлите текст");
+      expect(sent.at(-1)?.text).toContain("Ответьте на карточку своим текстом");
+      expect(sent.at(-1)?.text).toContain("<code>Черновик</code>"); // черновик можно скопировать и поправить
       expect(await handleText(deps, chat("L"), "/cancel")).toContain("Отменила");
       expect((await db.decision.findUniqueOrThrow({ where: { id: d.id } })).status).toBe("PENDING");
 

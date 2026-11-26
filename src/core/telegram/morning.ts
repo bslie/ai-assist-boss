@@ -3,11 +3,14 @@
  * сэкономленные часы. Данные те же, что на экране «Сегодня».
  */
 import type { PrismaClient } from "@/generated/prisma/client";
+import { clock } from "../clock";
 import { getToday, plural } from "../dashboard";
+import { publishEvent } from "../events";
 import type { RoutineJob } from "../scheduler";
+import { sendDecisionCard } from "./cards";
 import { esc, type Messenger } from "./types";
 
-export async function buildMorningDigest(db: PrismaClient, leaderId: string): Promise<string> {
+export async function buildMorningDigest(db: PrismaClient, leaderId: string, opts: { resurfaced?: number } = {}): Promise<string> {
   const t = await getToday(db, leaderId);
   const first = t.leader.name.split(" ")[0];
   const n = t.decisions.length;
@@ -24,6 +27,9 @@ export async function buildMorningDigest(db: PrismaClient, leaderId: string): Pr
       ? `Без вас не решить: ${n} ${plural(n, "вопрос", "вопроса", "вопросов")}. Карточки ниже.`
       : "Решений, которые ждут вас, нет.",
   );
+  if (opts.resurfaced) {
+    lines.push(`Среди них ${opts.resurfaced} ${plural(opts.resurfaced, "отложенный вопрос", "отложенных вопроса", "отложенных вопросов")}, которые вы просили вернуть.`);
+  }
   if (t.doneChips.length) lines.push("", "<b>Сделано без вас</b>", ...t.doneChips.map((c) => `• ${esc(c)}`));
   const waiting = await waitingForInvite(db, leaderId);
   if (waiting.length) {
@@ -69,14 +75,45 @@ export interface JobDeps {
 
 export type JobResult = { sent: number } | { skipped: string };
 
+/**
+ * «Не сейчас» откладывает карточку до следующего утреннего плана: тут она снова становится PENDING
+ * и (ссылку на старое сообщение сбрасываем) уходит в чат заново. Возвращает id вернувшихся карточек.
+ */
+export async function resurfaceSnoozed(db: PrismaClient, leaderId: string): Promise<string[]> {
+  const snoozed = await db.decision.findMany({ where: { leaderId, status: "SNOOZED" }, orderBy: { createdAt: "asc" }, select: { id: true } });
+  if (snoozed.length === 0) return [];
+  const ids = snoozed.map((d) => d.id);
+  await db.decision.updateMany({
+    where: { leaderId, id: { in: ids }, status: "SNOOZED" },
+    data: { status: "PENDING", resolvedAt: null, telegramMessageId: null },
+  });
+  await db.activityLog.create({
+    data: {
+      leaderId,
+      createdAt: clock.now(),
+      pipeline: "EMAIL",
+      action: "DECISION_RESURFACED",
+      reason: `Вернула отложенные карточки: ${ids.length}`,
+      metadata: { decisionIds: ids },
+    },
+  });
+  await publishEvent(leaderId, { type: "metrics.updated", data: {} });
+  return ids;
+}
+
 export async function processRoutineJob({ db, messenger }: JobDeps, job: RoutineJob): Promise<JobResult> {
   if (job.code !== "MORNING_DIGEST") return { skipped: `рутина ${job.code} ещё не реализована` };
+
+  // Отложенное возвращаем в любом случае: даже без чата оно должно снова появиться в вебе.
+  const back = await resurfaceSnoozed(db, job.leaderId);
 
   const chats = await db.telegramBinding.findMany({ where: { leaderId: job.leaderId, role: "LEADER" }, select: { chatId: true } });
   const unique = [...new Set(chats.map((c) => c.chatId))];
   if (unique.length === 0) return { skipped: "чат руководителя не привязан" };
 
-  const text = await buildMorningDigest(db, job.leaderId);
+  const text = await buildMorningDigest(db, job.leaderId, { resurfaced: back.length });
   for (const chatId of unique) await messenger.send(chatId, text);
+  // Вернувшиеся карточки идут следом за планом, как новые.
+  for (const id of back) await sendDecisionCard(db, messenger, job.leaderId, id);
   return { sent: unique.length };
 }

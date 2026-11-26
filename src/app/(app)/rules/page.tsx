@@ -1,4 +1,16 @@
+import { Suspense } from "react";
+import { LearnedRules } from "@/components/assistant/learned-rules";
 import { RuleInput } from "@/components/assistant/rule-input";
+import { listLearned } from "@/core/memory";
+import { db } from "@/db/client";
+import { getCurrentLeader } from "@/lib/current-leader";
+
+async function Learned() {
+  const leader = await getCurrentLeader();
+  if (!leader) return null;
+  const rules = await listLearned(db, leader.id);
+  return <LearnedRules leaderId={leader.id} rules={rules.map((r) => ({ id: r.id, ruleText: r.ruleText }))} />;
+}
 
 const Chip = ({ children }: { children: React.ReactNode }) => (
   <span className="inline-block rounded-full border border-[#3d3931] bg-raised px-3 font-sans text-xl">{children}</span>
@@ -45,6 +57,10 @@ export default function RulesPage() {
           Кадры. Письма руководству. Обещания клиентам. Ни правилом, ни словами этого не переключить, даже если вы попросите.
         </p>
       </section>
+
+      <Suspense fallback={<div className="text-dim">Загружаю выученные правила…</div>}>
+        <Learned />
+      </Suspense>
 
       <RuleInput />
     </main>

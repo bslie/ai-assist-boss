@@ -19,6 +19,8 @@ export interface Deps {
   db: PrismaClient;
   messenger: Messenger;
   state: StateStore;
+  /** Воркер умеет анализировать правки (есть LLM): после правки обещаем сообщить о найденном правиле. */
+  learns?: boolean;
 }
 
 export interface CallbackInput {
@@ -48,7 +50,7 @@ async function resolveAndRefresh(deps: Deps, chatId: string, decisionId: string,
   const res = await resolveDecision(deps.db, leaderId, decisionId, input);
   // Карточка в чате обновляется всегда: и после решения, и если оно уже было принято в вебе.
   await refreshDecisionCard(deps.db, deps.messenger, leaderId, decisionId).catch(() => {});
-  if (res.ok) return "Готово";
+  if (res.ok) return input.action === "SNOOZE" ? "Верну в утреннем плане" : "Готово";
   return RESOLVE_MSG[res.code] ?? res.message;
 }
 
@@ -78,7 +80,14 @@ export async function handleCallback(deps: Deps, input: CallbackInput): Promise<
     case "e": {
       if (d.status !== "PENDING") return "Уже решено";
       await deps.state.set(editKey(input.chatId), id, EDIT_TTL);
-      await deps.messenger.send(input.chatId, "Пришлите текст ответа одним сообщением. Отмена: /cancel");
+      // Черновик отдельным сообщением: по нажатию на моноширинный текст он копируется, правится и отправляется назад.
+      await deps.messenger.send(
+        input.chatId,
+        [
+          "Ответьте на карточку своим текстом или просто пришлите его сообщением. Отмена: /cancel",
+          d.draftText ? `\nЧерновик, его можно скопировать:\n<code>${esc(d.draftText)}</code>` : "",
+        ].join(""),
+      );
       return "Жду ваш текст";
     }
     case "d": {
@@ -183,17 +192,39 @@ async function handleTaskCallback(deps: Deps, input: CallbackInput, action: stri
   }
 }
 
+/** Ответ после правки. Если воркер анализирует правки, предупреждаем, что сообщение придёт чуть позже (10–20 секунд). */
+function afterEdit(deps: Deps, resolved: string, body: string): string {
+  if (resolved !== "Готово") return resolved;
+  const wait = deps.learns ? "\n\nПосмотрю, нет ли в правке правила для памяти. Если есть, напишу через несколько секунд." : "";
+  return `Принято, использую ваш вариант:\n${esc(body)}${wait}`;
+}
+
 const fmtShort = (d: Date) =>
   new Intl.DateTimeFormat("ru-RU", { timeZone: "Europe/Moscow", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" }).format(d);
 
 /** Текст от пользователя: ответ на «Поправить» (руководитель) или на «Уточнить» (исполнитель). */
-export async function handleText(deps: Deps, chatId: string, text: string): Promise<string> {
+export async function handleText(deps: Deps, chatId: string, text: string, opts: { replyToMessageId?: string } = {}): Promise<string> {
   const pending = await deps.state.get(editKey(chatId));
   const clarify = await deps.state.get(clarifyKey(chatId));
   if (text.trim() === "/cancel") {
     await deps.state.del(editKey(chatId));
     await deps.state.del(clarifyKey(chatId));
     return "Отменила.";
+  }
+
+  // Ответ (reply) на сообщение с карточкой = правка этой карточки, кнопка «Поправить» не нужна.
+  if (opts.replyToMessageId && !clarify) {
+    const card = await deps.db.decision.findFirst({
+      where: { telegramMessageId: `${chatId}:${opts.replyToMessageId}`, status: "PENDING" },
+    });
+    if (card) {
+      const d = await authorize(deps, chatId, card.id);
+      if (!d) return "Не могу применить правку: нет доступа к карточке.";
+      const body = text.trim();
+      if (!body) return "Текст пустой, правку не применила.";
+      await deps.state.del(editKey(chatId));
+      return afterEdit(deps, await resolveAndRefresh(deps, chatId, card.id, d.leaderId, { action: "EDITED_APPROVED", editedText: body }), body);
+    }
   }
   if (clarify) {
     await deps.state.del(clarifyKey(chatId));
@@ -210,8 +241,7 @@ export async function handleText(deps: Deps, chatId: string, text: string): Prom
     if (!d) return "Не могу применить правку: нет доступа к карточке.";
     const body = text.trim();
     if (!body) return "Текст пустой, правку не применила.";
-    const msg = await resolveAndRefresh(deps, chatId, pending, d.leaderId, { action: "EDITED_APPROVED", editedText: body });
-    return msg === "Готово" ? `Принято, использую ваш вариант:\n${esc(body)}` : msg;
+    return afterEdit(deps, await resolveAndRefresh(deps, chatId, pending, d.leaderId, { action: "EDITED_APPROVED", editedText: body }), body);
   }
   const bound = await deps.db.telegramBinding.count({ where: { chatId } });
   return bound === 0

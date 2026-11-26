@@ -11,7 +11,7 @@ const STATUS_TEXT: Record<string, string> = {
   EDITED_APPROVED: "Утверждено с вашей правкой",
   DELEGATED: "Передано",
   REJECTED: "Отклонено",
-  SNOOZED: "Отложено",
+  SNOOZED: "Отложено: верну в утреннем плане",
 };
 
 export function cardText(c: DecisionCard): string {

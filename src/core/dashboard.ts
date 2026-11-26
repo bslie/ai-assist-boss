@@ -4,6 +4,7 @@
  */
 import type { Decision, PrismaClient } from "@/generated/prisma/client";
 import { readyClock } from "./clock";
+import { humanizeReasons } from "./reasons";
 
 /** Часовой пояс руководителя. В схеме его нет; Россия без перехода на летнее время → фиксированный сдвиг. */
 const TZ = "Europe/Moscow";
@@ -114,7 +115,7 @@ export async function buildDecisionCards(db: PrismaClient, leaderId: string, pen
       summary: d.contextSummary,
       draft: d.draftText,
       recommendation: d.aiRecommendation,
-      reasons: d.gateReasons,
+      reasons: humanizeReasons(d.gateReasons),
       reminderCount: d.reminderCount,
     };
   });

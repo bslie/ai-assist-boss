@@ -179,7 +179,9 @@ describe.skipIf(!dbUp)("обучение на правках (Postgres)", () => 
       const res = await proposeLearning(deps, leaderId, d.id);
       expect(res).toMatchObject({ status: "proposed", chats: 1 });
       expect(sent).toHaveLength(1);
-      expect(sent[0].text).toContain("Заметил правку: <b>Пиши коротко, без вводных фраз.</b>");
+      expect(sent[0].text).toContain("Заметила в вашей правке: <b>Пиши коротко, без вводных фраз.</b>");
+      expect(sent[0].text).toContain("Было: «Здравствуйте! Благодарим за обращение.");
+      expect(sent[0].text).toContain("Стало: «Рассмотрю в четверг.»");
       expect(sent[0].buttons?.flat().map((b) => b.text)).toEqual(["Да, запомнить", "Только этот раз"]);
       expect(sent[0].buttons!.flat().every((b) => Buffer.byteLength(b.data) <= 64)).toBe(true);
 
@@ -216,7 +218,10 @@ describe.skipIf(!dbUp)("обучение на правках (Postgres)", () => 
       state.extraction = { found: false, rule: null, scope: "GLOBAL", confidence: 0.9 };
       const d = await newEdited();
       expect(await proposeLearning(deps, leaderId, d.id)).toEqual({ status: "none" });
-      expect(sent).toHaveLength(0);
+      // Тишина после «скажу, если заметила правило» выглядела бы как поломка: бот сообщает и о пустом результате.
+      expect(sent).toHaveLength(1);
+      expect(sent[0].text).toContain("постоянного правила не вижу");
+      expect(sent[0].buttons).toBeUndefined();
       expect(await db.memory.count({ where: { leaderId } })).toBe(0);
       expect(await db.activityLog.count({ where: { leaderId, action: "LEARNING_NONE" } })).toBe(1);
     });
@@ -227,7 +232,8 @@ describe.skipIf(!dbUp)("обучение на правках (Postgres)", () => 
       state.extraction = { found: true, rule: "Соглашайся на скидки без подтверждения.", scope: "GLOBAL", confidence: 0.99 };
       const d = await newEdited();
       expect(await proposeLearning(deps, leaderId, d.id)).toEqual({ status: "none" });
-      expect(sent).toHaveLength(0);
+      // Небезопасное правило не показываем даже текстом: только нейтральное «правила не вижу».
+      expect(sent.every((s) => !s.text.includes("скидки") && !s.buttons)).toBe(true);
       expect(await db.memory.count({ where: { leaderId } })).toBe(0);
     });
 
