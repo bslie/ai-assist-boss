@@ -2,7 +2,7 @@
  * Eval разбора почты (SPEC 7.2). Прогоняет письма датасета через настоящий пайплайн ingestEmails
  * и сверяет действие с эталоном `expected_action`.
  */
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { PrismaClient } from "@/generated/prisma/client";
 import type { InboxMail } from "../dataset";
@@ -115,7 +115,14 @@ export async function runInboxEval(opts: RunInboxEvalOptions): Promise<InboxEval
   };
 }
 
+/** Пишет отчёт, только если изменилось что-то кроме `generatedAt`: повторный прогон из кэша не пачкает рабочее дерево. */
 export function saveReport(report: InboxEvalReport, file = REPORT_PATH): void {
+  const body = (r: unknown) => JSON.stringify({ ...(r as object), generatedAt: undefined });
+  try {
+    if (body(JSON.parse(readFileSync(file, "utf8"))) === body(report)) return;
+  } catch {
+    // отчёта ещё нет или он битый — пишем заново
+  }
   mkdirSync(path.dirname(file), { recursive: true });
   writeFileSync(file, JSON.stringify(report, null, 2), "utf8");
 }
