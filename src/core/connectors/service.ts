@@ -6,7 +6,7 @@
 import { z } from "zod";
 import type { Prisma, PrismaClient } from "@/generated/prisma/client";
 import { decryptJson, encryptJson, SecretsNotConfigured, secretsConfigured } from "./crypto";
-import { verifyMailCredentials } from "../mail/factory";
+import { isMailType, verifyMailCredentials } from "../mail/factory";
 import { probeMcp, type McpTool } from "./mcp";
 import { getModule, MODULES } from "./modules";
 import { PermSchema, type ConnectorManifest, type ConnectorTool, type Perm } from "./types";
@@ -48,6 +48,8 @@ export interface CatalogItem {
   account: string | null;
   /** Последний опрос почты (только для почтовых модулей). */
   lastSync: LastSync | null;
+  /** Подключение читает почту: в панели есть «Проверить сейчас». */
+  pollable: boolean;
   tools: CatalogTool[];
   multiple: boolean;
 }
@@ -161,6 +163,7 @@ function itemFor(m: ConnectorManifest, row: Row | null): CatalogItem {
     mcpUrl: row?.mcpUrl ?? null,
     account: stored?.account ?? values.email ?? null,
     lastSync: stored?.lastSync ?? null,
+    pollable: isMailType(m.id),
     tools: toolsFor(m, row, stored),
     multiple: Boolean(m.multiple),
   };

@@ -17,6 +17,7 @@ export const microsoft365: ConnectorManifest = {
     scopes: ["offline_access", "Mail.ReadWrite", "Mail.Send", "Calendars.ReadWrite"],
     clientIdEnv: "MS_CLIENT_ID",
     clientSecretEnv: "MS_CLIENT_SECRET",
+    userinfoUrl: "https://graph.microsoft.com/v1.0/me?$select=mail,userPrincipalName",
   },
   tools: [
     { name: "mail.read", label: "Читать входящие", description: "Разбирать письма и готовить карточки.", kind: "read", default: "AUTO" },

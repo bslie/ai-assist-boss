@@ -38,11 +38,20 @@ export async function GET(req: Request) {
       signal: AbortSignal.timeout(15_000),
     });
     const tokens = TokenSchema.parse(await res.json());
-    await saveOAuthTokens(db, leaderId, m.id, {
-      access_token: tokens.access_token,
-      refresh_token: tokens.refresh_token,
-      expires_at: tokens.expires_in ? Date.now() + tokens.expires_in * 1000 : undefined,
-    });
+    // Адрес аккаунта нужен, чтобы не разбирать собственные письма и показывать, чей ящик подключён.
+    let account: string | undefined;
+    if (m.auth.userinfoUrl) {
+      const ui = await fetch(m.auth.userinfoUrl, { headers: { authorization: `Bearer ${tokens.access_token}` }, signal: AbortSignal.timeout(10_000) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+      const v = (ui?.email ?? ui?.mail ?? ui?.userPrincipalName) as unknown;
+      if (typeof v === "string") account = v.toLowerCase();
+    }
+    await saveOAuthTokens(
+      db,
+      leaderId,
+      m.id,
+      { access_token: tokens.access_token, refresh_token: tokens.refresh_token, expires_at: tokens.expires_in ? Date.now() + tokens.expires_in * 1000 : undefined },
+      account,
+    );
     return back(`connected=${encodeURIComponent(m.id)}`);
   } catch {
     return back(`error=${encodeURIComponent("Сервис не выдал доступ. Проверьте настройки приложения и повторите.")}`);

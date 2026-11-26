@@ -2,11 +2,12 @@
 import type { PrismaClient } from "@/generated/prisma/client";
 import { decryptJson, encryptJson } from "../connectors/crypto";
 import { getModule } from "../connectors/modules";
+import { GmailMailConnector } from "./gmail";
 import { GraphMailConnector } from "./graph";
 import { ImapMailConnector, type ImapConfig } from "./imap";
 import type { MailConnector } from "./types";
 
-export const MAIL_TYPES = ["BUILTIN_IMAP", "BUILTIN_GRAPH"] as const;
+export const MAIL_TYPES = ["BUILTIN_IMAP", "BUILTIN_GRAPH", "BUILTIN_GMAIL"] as const;
 export const isMailType = (t: string) => (MAIL_TYPES as readonly string[]).includes(t);
 
 interface Stored {
@@ -32,13 +33,14 @@ export function createMailConnector(db: PrismaClient, row: { id: string; leaderI
     const cfg = imapFrom(stored.values);
     return cfg ? new ImapMailConnector(cfg) : null;
   }
-  if (row.type === "BUILTIN_GRAPH") {
-    const m = getModule("BUILTIN_GRAPH");
+  if (row.type === "BUILTIN_GRAPH" || row.type === "BUILTIN_GMAIL") {
+    const m = getModule(row.type);
     if (!stored.tokens || m?.auth.kind !== "oauth") return null;
     const clientId = process.env[m.auth.clientIdEnv];
     const clientSecret = process.env[m.auth.clientSecretEnv];
     if (!clientId || !clientSecret) return null;
-    return new GraphMailConnector({
+    const Impl = row.type === "BUILTIN_GMAIL" ? GmailMailConnector : GraphMailConnector;
+    return new Impl({
       tokens: stored.tokens,
       ownEmail: stored.account,
       tokenUrl: m.auth.tokenUrl,

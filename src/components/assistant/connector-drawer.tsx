@@ -120,7 +120,7 @@ function Body({ item, leaderId, api, onClose, onChanged }: Props & { item: Catal
           </div>
         )}
 
-        {connected && item.state === "connected" && (item.moduleId === "BUILTIN_IMAP" || item.moduleId === "BUILTIN_GRAPH") && (
+        {connected && item.state === "connected" && item.pollable && (
           <section className="flex flex-col gap-2.5 rounded-2xl border border-line bg-ink p-4">
             <div className="text-[15px]">Проверка почты</div>
             <div className={`text-[13px] ${item.lastSync?.error ? "text-coral" : "text-dim"}`}>

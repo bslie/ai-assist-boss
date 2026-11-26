@@ -11,7 +11,7 @@ import { ingestEmails, type IngestOptions, type IngestStats } from "../email-tri
 import type { LlmClient } from "../llm";
 import { evaluate, getConnectorToolPermission, loadGateLeader, logVerdict } from "../policy-gate";
 import { clock } from "../clock";
-import { createMailConnector, isMailType } from "./factory";
+import { createMailConnector, isMailType, MAIL_TYPES } from "./factory";
 import type { MailConnector } from "./types";
 
 const BATCH = 30;
@@ -96,5 +96,5 @@ async function archiveNewsletters(db: PrismaClient, leaderId: string, connectorI
 
 /** Все включённые почтовые подключения (для воркера). */
 export async function activeMailConnectors(db: PrismaClient): Promise<{ id: string; leaderId: string }[]> {
-  return db.connector.findMany({ where: { isActive: true, type: { in: ["BUILTIN_IMAP", "BUILTIN_GRAPH"] } }, select: { id: true, leaderId: true } });
+  return db.connector.findMany({ where: { isActive: true, type: { in: [...MAIL_TYPES] } }, select: { id: true, leaderId: true } });
 }

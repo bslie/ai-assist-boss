@@ -22,7 +22,7 @@ export async function GET(req: Request) {
     redirect_uri: `${url.origin}/api/connectors/oauth/callback`,
     scope: m.auth.scopes.join(" "),
     state,
-    prompt: "select_account",
+    ...(m.auth.extraParams ?? { prompt: "select_account" }),
   }).toString();
   return NextResponse.redirect(to);
 }

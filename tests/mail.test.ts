@@ -12,6 +12,7 @@ const { pollConnector } = await import("@/core/mail/poll");
 const { executeApprovedReply } = await import("@/core/mail/send");
 const { resolveDecision } = await import("@/core/decisions");
 const { GraphMailConnector } = await import("@/core/mail/graph");
+const { GmailMailConnector } = await import("@/core/mail/gmail");
 const { htmlToText } = await import("@/core/mail/types");
 
 import type { MailConnector, MailFetch, OutgoingReply } from "@/core/mail/types";
@@ -104,6 +105,59 @@ describe("Graph: обновление токена и разбор писем", 
     expect(r.emails[0]).toMatchObject({ externalId: "m1", senderName: "Анна", subject: "Привет" });
     expect(r.cursor).toBe("2026-12-07T11:00:00Z");
     expect(calls.some((u) => u.includes("%24filter") || u.includes("$filter"))).toBe(true);
+  });
+});
+
+
+describe('Gmail: письма, ответ в ветку, архив, обновление токена', () => {
+  const enc = (s: string) => Buffer.from(s, 'utf8').toString('base64url');
+  const calls: { url: string; init?: RequestInit }[] = [];
+  const msg = (id: string, ms: number, from: string, subject: string, parts: unknown) => ({
+    id, threadId: 't-' + id, internalDate: String(ms),
+    payload: { headers: [{ name: 'From', value: from }, { name: 'Subject', value: subject }, { name: 'Message-ID', value: '<' + id + '@g>' }, { name: 'To', value: 'Boss <boss@gmail.com>, x@y.ru' }], mimeType: 'multipart/alternative', parts },
+  });
+  const store: Record<string, unknown> = {
+    a1: msg('a1', 1_800_000_100_000, 'Анна Иванова <Anna@Corp.ru>', 'Вопрос по бюджету', [{ mimeType: 'text/html', body: { data: enc('<p>HTML версия</p>') } }, { mimeType: 'text/plain', body: { data: enc('Привет, нужен ответ') } }]),
+    a2: msg('a2', 1_800_000_200_000, 'boss@gmail.com', 'Моё', [{ mimeType: 'text/plain', body: { data: enc('сам себе') } }]),
+    a3: msg('a3', 1_800_000_300_000, 'news@vendor.ru', 'Новости', [{ mimeType: 'text/html', body: { data: enc('<div>Только html</div>') } }]),
+  };
+  const f = (async (url: string, init?: RequestInit) => {
+    calls.push({ url: String(url), init });
+    const u = String(url);
+    if (u.includes('oauth2')) return new Response(JSON.stringify({ access_token: 'fresh', expires_in: 3600 }));
+    if (u.includes('/messages?')) return new Response(JSON.stringify({ messages: [{ id: 'a3' }, { id: 'a2' }, { id: 'a1' }] }));
+    if (u.includes('format=minimal')) return new Response(JSON.stringify({ threadId: 't-a1' }));
+    if (u.endsWith('/messages/send') || u.endsWith('/modify')) return new Response('{}');
+    const id = u.match(/messages\/([^?/]+)\?format=full/)?.[1];
+    return new Response(JSON.stringify(store[id ?? '']));
+  }) as unknown as typeof fetch;
+  const saved: unknown[] = [];
+  const g = new GmailMailConnector({ tokens: { access_token: 'old', refresh_token: 'r', expires_at: Date.now() - 5 }, ownEmail: 'boss@gmail.com', saveTokens: async (x) => void saved.push(x), tokenUrl: 'https://oauth2.example/token', clientId: 'i', clientSecret: 's', fetch: f });
+
+  it('читает от старых к новым, пропускает свои, берёт plain или html, курсор — секунды последнего', async () => {
+    const r = await g.listNew(null, 10);
+    expect(saved).toHaveLength(1); // токен обновлён, refresh сохранён
+    expect(saved[0]).toMatchObject({ access_token: 'fresh', refresh_token: 'r' });
+    expect(r.emails.map((e) => e.externalId)).toEqual(['a1', 'a3']);
+    expect(r.emails[0]).toMatchObject({ senderEmail: 'anna@corp.ru', senderName: 'Анна Иванова', subject: 'Вопрос по бюджету', body: 'Привет, нужен ответ', messageId: '<a1@g>', recipients: ['boss@gmail.com', 'x@y.ru'] });
+    expect(r.emails[1].body).toBe('Только html');
+    expect(r.cursor).toBe('1800000300');
+    expect(calls.find((c) => c.url.includes('/messages?'))?.url).toContain('in%3Ainbox+after%3A');
+  });
+
+  it('ответ идёт в ту же ветку с заголовками In-Reply-To; архив снимает метку INBOX', async () => {
+    await g.send({ to: 'anna@corp.ru', subject: 'Вопрос по бюджету', text: 'Отвечу в четверг.', externalId: 'a1', inReplyTo: '<a1@g>' });
+    const send = calls.filter((c) => c.url.endsWith('/messages/send')).at(-1)!;
+    const body = JSON.parse(String(send.init?.body)) as { raw: string; threadId?: string };
+    expect(body.threadId).toBe('t-a1');
+    const mime = Buffer.from(body.raw, 'base64url').toString('utf8');
+    expect(mime).toMatch(/In-Reply-To: <a1@g>/i);
+    expect(mime).toMatch(/To: anna@corp.ru/i);
+    expect(mime).toMatch(/Subject: (=\?UTF-8|Re:)/i);
+
+    await g.archive('a3');
+    const mod = calls.filter((c) => c.url.endsWith('/messages/a3/modify')).at(-1)!;
+    expect(JSON.parse(String(mod.init?.body))).toEqual({ removeLabelIds: ['INBOX'] });
   });
 });
 

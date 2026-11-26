@@ -42,6 +42,10 @@ export type AuthSpec =
       scopes: string[];
       clientIdEnv: string;
       clientSecretEnv: string;
+      /** Дополнительные параметры страницы входа (у Google нужен access_type=offline, иначе не будет refresh-токена). */
+      extraParams?: Record<string, string>;
+      /** Откуда взять адрес аккаунта после входа: ответ вида { email } или { mail } с токеном доступа. */
+      userinfoUrl?: string;
     }
   | { kind: "mcp" };
 
