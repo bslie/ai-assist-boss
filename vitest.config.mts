@@ -8,5 +8,7 @@ export default defineConfig({
   test: {
     include: ["tests/**/*.test.ts"],
     environment: "node",
+    // Свои каналы событий: живой воркер на том же Redis не должен исполнять тестовые события.
+    env: { EVENTS_CHANNEL_PREFIX: "test-events" },
   },
 });
