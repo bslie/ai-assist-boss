@@ -44,11 +44,11 @@ export async function handleStart(db: PrismaClient, chatId: string, payload: str
     return { text: "Здравствуйте. Я ИИ-помощник руководителя. Чтобы начать, откройте ссылку-приглашение, которую вам прислали." };
   }
 
-  // Руководитель: <slug>:<secret>
-  if (arg.includes(":")) {
-    const idx = arg.indexOf(":");
-    const slug = arg.slice(0, idx);
-    const secret = arg.slice(idx + 1);
+  // Руководитель: <slug>_<secret> (ссылка t.me: Telegram пропускает в start только [A-Za-z0-9_-])
+  // либо <slug>:<secret> (ручной ввод, как в SPEC). Секрет — 24 hex-символа, slug без «_» и «:».
+  const leaderMatch = /^(.+?)[:_]([0-9a-f]{24})$/.exec(arg) ?? (arg.includes(":") ? /^(.+?):(.*)$/.exec(arg) : null);
+  if (leaderMatch) {
+    const [, slug, secret] = leaderMatch;
     const leader = await db.leader.findUnique({ where: { slug } });
     if (!leader || !secretMatches(slug, secret, key)) return { text: INVITE_LEADER_FAIL };
 

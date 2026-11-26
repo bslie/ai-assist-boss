@@ -42,13 +42,14 @@ async function main() {
   const messenger = bot ? createMessenger(bot.api) : createConsoleMessenger(log);
   if (!bot) log("TELEGRAM_BOT_TOKEN не задан: бот выключен, сообщения идут в лог");
 
-  // Очередь рутин. jobId = рутина + момент по cron: повторный тик не создаст дубль.
+  // Очередь рутин. От дублей защищает условный захват lastRunAt в tick(), а не jobId: BullMQ молча
+  // отбрасывает задачу с уже существующим id, и после сброса демо-часов рутина не сработала бы снова.
   const queue = new Queue<RoutineJob>(QUEUE, {
     connection: redisConnection(),
     defaultJobOptions: { attempts: 3, backoff: { type: "exponential", delay: 5000 }, removeOnComplete: 200, removeOnFail: 500 },
   });
   const jobQueue: JobQueue = {
-    enqueue: async (job) => void (await queue.add(job.code, job, { jobId: `${job.routineId}__${Date.parse(job.firedAt)}` })),
+    enqueue: async (job) => void (await queue.add(job.code, job, { jobId: `${job.routineId}__${Date.parse(job.firedAt)}__${Date.now()}` })),
   };
   const worker = new Worker<RoutineJob>(
     QUEUE,

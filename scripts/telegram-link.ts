@@ -22,7 +22,7 @@ async function main() {
     const people = await db.employee.findMany({ where: { leaderId: leader.id }, orderBy: { name: "asc" } });
     for (const p of people) console.log(`${p.name} (${p.position}): https://t.me/${bot}?start=${p.inviteToken}`);
   } else {
-    console.log(`https://t.me/${bot}?start=${slug}:${leaderBindSecret(slug)}`);
+    console.log(`https://t.me/${bot}?start=${slug}_${leaderBindSecret(slug)}`);
   }
 }
 

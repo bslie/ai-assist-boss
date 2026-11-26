@@ -76,6 +76,16 @@ describe.skipIf(!dbUp)("Telegram (Postgres)", () => {
       expect(b).toMatchObject({ role: "LEADER", leaderId, isActive: true });
     });
 
+    it("формат ссылки t.me: slug_secret (Telegram не пропускает «:» в start)", async () => {
+      expect(/^[A-Za-z0-9_-]+$/.test(`${slug}_${leaderBindSecret(slug, KEY)}`)).toBe(true);
+      const ok = await handleStart(db, chat("L"), `${slug}_${leaderBindSecret(slug, KEY)}`, KEY);
+      expect(ok.text).toContain("Чат привязан");
+      expect(await db.telegramBinding.count({ where: { chatId: chat("L"), role: "LEADER", leaderId } })).toBe(1);
+      // неверный секрет в том же формате
+      const bad = await handleStart(db, chat("M"), `${slug}_${"0".repeat(24)}`, KEY);
+      expect(bad.text).toContain("Не удалось");
+    });
+
     it("без ключа привязка руководителя невозможна (fail closed)", async () => {
       const res = await handleStart(db, chat("L"), `${slug}:anything`, "");
       expect(res.text).toContain("Не удалось");

@@ -50,8 +50,12 @@ export function createBot(token: string, db: PrismaClient, state: StateStore): B
   const html = { parse_mode: "HTML" as const };
 
   // Работаем только в личных чатах: в группах карточки руководителя показывать нельзя.
+  // В лог идёт только тип апдейта и чата, без текста и идентификаторов.
   bot.use(async (ctx, next) => {
-    if (ctx.chat?.type === "private") await next();
+    const kind = Object.keys(ctx.update).find((k) => k !== "update_id");
+    const chatType = ctx.chat?.type;
+    console.log(`[telegram] апдейт ${kind}, чат ${chatType ?? "—"}${chatType === "private" ? "" : " (пропущен)"}`);
+    if (chatType === "private") await next();
   });
 
   bot.command("start", async (ctx) => {
