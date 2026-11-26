@@ -54,3 +54,6 @@ Thumbs.db
 .vscode/*
 !.vscode/settings.json
 !.vscode/extensions.json
+
+# Кэш LLM для демо (черновики), не для eval
+/data/cache/

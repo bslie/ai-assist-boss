@@ -181,7 +181,8 @@ export async function ingestEmails(
     let taskId: string | null = null;
 
     if (decision.action === "ASK_LEADER") {
-      const draftText = (await opts.draft?.({ leaderId, email, summary: c.summary })) ?? null;
+      // Сбой генерации черновика не должен терять карточку: руководитель всё равно увидит письмо.
+      const draftText = (await opts.draft?.({ leaderId, email, summary: c.summary }).catch(() => null)) ?? null;
       const d = await db.decision.create({
         data: {
           createdAt: clock.now(),

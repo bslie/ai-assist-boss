@@ -13,6 +13,8 @@ export type Pipeline =
   | "PROTOCOL_GEN"
   | "TASK_REVIEW"
   | "PROFILE_IMPORT"
+  | "RULE_EXTRACTION"
+  | "DRAFT"
   | "CHAT";
 
 export interface ProviderResult {

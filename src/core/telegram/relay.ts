@@ -3,11 +3,18 @@
  * Вынесено из worker/, чтобы покрыть тестами без Telegram.
  */
 import type { LeaderEvent } from "../events";
+import { proposeLearning } from "../learning/propose";
+import type { LlmClient } from "../llm";
 import { dispatchTask, executeApprovedToolCall, type DispatchDeps } from "../tasks/dispatch";
 import { refreshDecisionCard, sendDecisionCard } from "./cards";
 
+export interface RelayDeps extends DispatchDeps {
+  /** Нужна для обучения на правках. Нет модели — правки просто не анализируются. */
+  llm?: LlmClient;
+}
+
 /** Возвращает короткое описание сделанного (для лога) или null, если событие воркеру не нужно. */
-export async function relayEvent(deps: DispatchDeps, leaderId: string, e: LeaderEvent): Promise<string | null> {
+export async function relayEvent(deps: RelayDeps, leaderId: string, e: LeaderEvent): Promise<string | null> {
   const id = typeof e.data.id === "string" ? e.data.id : null;
   if (!id) return null;
 
@@ -19,7 +26,14 @@ export async function relayEvent(deps: DispatchDeps, leaderId: string, e: Leader
     await refreshDecisionCard(deps.db, deps.messenger, leaderId, id);
     // Подтверждённое руководителем действие (например, отправка поручения) исполняется только здесь, после шлюза.
     const res = await executeApprovedToolCall(deps, leaderId, id);
-    return res ? `карточка ${id} обновлена, действие: ${res.status}` : `карточка ${id} обновлена`;
+    const parts = [`карточка ${id} обновлена`];
+    if (res) parts.push(`действие: ${res.status}`);
+    // Правка руководителя → фоновый анализ: нет ли устойчивого правила для памяти.
+    if (e.data.status === "EDITED_APPROVED" && deps.llm) {
+      const l = await proposeLearning({ db: deps.db, messenger: deps.messenger, llm: deps.llm }, leaderId, id);
+      parts.push(`обучение: ${l.status}`);
+    }
+    return parts.join(", ");
   }
 
   // Новое поручение: отправка исполнителю через Policy Gate. Остальные task.updated воркеру не нужны.

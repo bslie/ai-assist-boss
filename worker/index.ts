@@ -7,6 +7,9 @@ import { Queue, Worker } from "bullmq";
 import Redis from "ioredis";
 import { clock } from "@/core/clock";
 import { subscribeAllEvents } from "@/core/events";
+import { LlmClient, MemoryCache } from "@/core/llm";
+import { createProviderOrReplay } from "@/core/llm/providers";
+import { dbUsageSink } from "@/core/llm/usage-db";
 import { tick, type JobQueue, type RoutineJob } from "@/core/scheduler";
 import { processRoutineJob } from "@/core/telegram/morning";
 import { relayEvent } from "@/core/telegram/relay";
@@ -42,6 +45,14 @@ async function main() {
   const messenger = bot ? createMessenger(bot.api) : createConsoleMessenger(log);
   if (!bot) log("TELEGRAM_BOT_TOKEN не задан: бот выключен, сообщения идут в лог");
 
+  // LLM для обучения на правках. Без неё правки просто не анализируются. Каждый вызов пишется в UsageLog.
+  let llm: LlmClient | undefined;
+  try {
+    llm = new LlmClient({ provider: createProviderOrReplay(), cache: new MemoryCache(), usage: dbUsageSink(db) });
+  } catch (e) {
+    log(`LLM не настроена (${(e as Error).message}): обучение на правках выключено`);
+  }
+
   // Очередь рутин. От дублей защищает условный захват lastRunAt в tick(), а не jobId: BullMQ молча
   // отбрасывает задачу с уже существующим id, и после сброса демо-часов рутина не сработала бы снова.
   const queue = new Queue<RoutineJob>(QUEUE, {
@@ -64,7 +75,7 @@ async function main() {
 
   // Карточки решений: web/ingest публикуют события, воркер доставляет их в Telegram.
   const unsubscribe = await subscribeAllEvents((leaderId, e) => {
-    relayEvent({ db, messenger }, leaderId, e)
+    relayEvent({ db, messenger, llm }, leaderId, e)
       .then((what) => what && log(`событие ${e.type}: ${what}`))
       .catch((err) => log(`событие ${e.type}: ошибка:`, (err as Error).message));
   });

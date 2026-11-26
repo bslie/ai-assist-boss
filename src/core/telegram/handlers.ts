@@ -8,6 +8,7 @@
 import type { PrismaClient } from "@/generated/prisma/client";
 import { resolveDecision, type ResolveInput } from "../decisions";
 import { publishEvent } from "../events";
+import { acceptMemory, rejectMemory } from "../learning/propose";
 import { taskText } from "../tasks/dispatch";
 import { buildDecisionCards } from "../dashboard";
 import { cardButtons, cardText, refreshDecisionCard } from "./cards";
@@ -60,6 +61,7 @@ export async function handleCallback(deps: Deps, input: CallbackInput): Promise<
     return (await switchRole(deps.db, input.chatId, action)).text.replace(/<[^>]+>/g, "");
   }
   if (kind === "t" && action && id) return handleTaskCallback(deps, input, action, id);
+  if (kind === "m" && action && id) return handleMemoryCallback(deps, input, action, id);
   if (kind !== "d" || !action || !id) return "Неизвестное действие";
 
   const d = await authorize(deps, input.chatId, id);
@@ -101,6 +103,28 @@ export async function handleCallback(deps: Deps, input: CallbackInput): Promise<
     default:
       return "Неизвестное действие";
   }
+}
+
+/** m:y|n:<memoryId> — «Да, запомнить» / «Только этот раз» на предложении правила. */
+async function handleMemoryCallback(deps: Deps, input: CallbackInput, action: string, memoryId: string): Promise<string> {
+  const m = await deps.db.memory.findUnique({ where: { id: memoryId } });
+  if (!m) return "Правило не найдено";
+  const allowed = await leaderIdsForChat(deps.db, input.chatId);
+  if (!allowed.includes(m.leaderId)) return "Нет доступа к этому правилу";
+
+  if (action === "y") {
+    const r = await acceptMemory(deps.db, m.leaderId, memoryId);
+    if (r === "already") return "Уже запомнила";
+    await deps.messenger.edit(input.chatId, input.messageId, `Запомнила: <b>${esc(m.ruleText)}</b>`).catch(() => {});
+    return "Запомнила";
+  }
+  if (action === "n") {
+    const r = await rejectMemory(deps.db, m.leaderId, memoryId);
+    if (r === "already") return "Это правило уже запомнено";
+    await deps.messenger.edit(input.chatId, input.messageId, "Хорошо, это только на этот раз.").catch(() => {});
+    return "Ок, только этот раз";
+  }
+  return "Неизвестное действие";
 }
 
 const clarifyKey = (chatId: string) => `tg:clarify:${chatId}`;

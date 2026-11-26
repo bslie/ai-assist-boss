@@ -78,6 +78,8 @@ export interface TodayData {
     openTasksMorning: { before: number; after: number };
     firstTimeRightPct: number;
     avgProtocolMinutes: number | null;
+    /** Число правил, выученных из правок (SPEC 7.4). */
+    learnedRules: number;
   };
 }
 
@@ -193,6 +195,7 @@ export async function getToday(db: PrismaClient, leaderId: string): Promise<Toda
     ...goals,
   ].slice(0, 4);
 
+  const learnedRules = await db.memory.count({ where: { leaderId, sourceType: "EDIT_LEARNING", isActive: true } });
   const savedMinutes = activity.reduce((s, a) => s + a.savedMinutes, 0);
   const closed = tasks.filter((t) => t.status !== "NEW");
   const right = closed.filter((t) => t.returnCount === 0 && t.rescheduleCount === 0).length;
@@ -216,6 +219,7 @@ export async function getToday(db: PrismaClient, leaderId: string): Promise<Toda
       openTasksMorning: { before: open.length, after: leaderOpen.length },
       firstTimeRightPct: closed.length ? Math.round((right / closed.length) * 100) : 0,
       avgProtocolMinutes: protoMin === null ? null : Math.round(protoMin),
+      learnedRules,
     },
   };
 }
