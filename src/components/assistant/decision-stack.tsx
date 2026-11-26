@@ -77,7 +77,7 @@ export function DecisionStack({ leaderId, decisions, delegates }: { leaderId: st
           <div className="absolute inset-x-2.5 bottom-2.5 h-10 rounded-b-[22px] border border-line bg-[#211f1b]" />
         </>
       )}
-      <article className="relative flex flex-col gap-4 rounded-[22px] border border-[#3d3931] bg-raised p-5 sm:gap-[18px] sm:p-7">
+      <article data-avatar-anchor="decision-card" className="relative flex flex-col gap-4 rounded-[22px] border border-[#3d3931] bg-raised p-5 sm:gap-[18px] sm:p-7">
         <div className="flex flex-wrap items-center gap-2.5">
           <span className={`rounded-full px-3 py-1 text-xs font-semibold ${TAG[cur.tone]}`}>{cur.tag}</span>
           <span className="text-[13px] text-dim">

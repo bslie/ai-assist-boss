@@ -23,7 +23,7 @@ export function DayList({ items }: { items: DayItem[] }) {
         {items.map((e, i) => {
           const isOpen = open === i;
           return (
-            <li key={`${e.time}-${e.title}-${i}`} className={cn("relative", i >= HEAD && !all && "hidden lg:block")}>
+            <li key={`${e.time}-${e.title}-${i}`} data-avatar-anchor="day-item" className={cn("relative", i >= HEAD && !all && "hidden lg:block")}>
               <span className={`absolute -left-[22px] top-[18px] size-[11px] rounded-full border-2 border-ink ${DOT[e.tone]}`} />
               <button
                 type="button"
