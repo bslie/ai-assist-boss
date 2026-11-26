@@ -23,6 +23,11 @@ COPY --from=build /app/worker ./worker
 COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/prisma.config.ts ./prisma.config.ts
 COPY --from=build /app/public ./public
+# Читаются во время работы: датасет и транскрипты (демо-сценарии, сидер, eval-отчёт), скрипты `npm run user:create`
+# и `npm run tg:link`, кэш LLM для повтора без сети (LLM_CACHE_FILE по умолчанию).
+COPY --from=build /app/data ./data
+COPY --from=build /app/scripts ./scripts
+COPY --from=build /app/tests/fixtures ./tests/fixtures
 COPY --from=build /app/.next ./.next
 COPY --from=build /app/next.config.ts ./next.config.ts
 COPY --from=build /app/tsconfig.json ./tsconfig.json
