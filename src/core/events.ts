@@ -63,3 +63,20 @@ function safeJson(raw: string): unknown {
     return null;
   }
 }
+
+/** Подписка на события ВСЕХ руководителей (для воркера: рассылка карточек в Telegram). */
+export async function subscribeAllEvents(
+  onEvent: (leaderId: string, e: LeaderEvent) => void,
+): Promise<() => Promise<void>> {
+  const sub = new Redis(redisUrl(), { maxRetriesPerRequest: 1 });
+  sub.on("pmessage", (_p, channel, raw) => {
+    const parsed = LeaderEventSchema.safeParse(safeJson(raw));
+    if (parsed.success) onEvent(channel.slice("events:".length), parsed.data);
+  });
+  sub.on("error", () => {});
+  await sub.psubscribe("events:*");
+  return async () => {
+    sub.removeAllListeners("pmessage");
+    await sub.quit().catch(() => {});
+  };
+}

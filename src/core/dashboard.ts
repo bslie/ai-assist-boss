@@ -2,7 +2,7 @@
  * Данные экрана «Сегодня» (SPEC 6: /api/dashboard/today, 7.4: метрики).
  * Все запросы по leaderId. «Сейчас» — только clock.now().
  */
-import type { PrismaClient } from "@/generated/prisma/client";
+import type { Decision, PrismaClient } from "@/generated/prisma/client";
 import { readyClock } from "./clock";
 
 /** Часовой пояс руководителя. В схеме его нет; Россия без перехода на летнее время → фиксированный сдвиг. */
@@ -89,6 +89,35 @@ export const plural = (n: number, one: string, few: string, many: string) => {
   return many;
 };
 
+/** Карточки решений: первое письмо треда даёт отправителя, категорию и время. Общий код для веба и Telegram. */
+export async function buildDecisionCards(db: PrismaClient, leaderId: string, pending: Decision[]): Promise<DecisionCard[]> {
+  const sources = await db.emailItem.findMany({
+    where: { leaderId, decisionId: { in: pending.map((d) => d.id) }, occurrence: 1 },
+  });
+  const sourceByDecision = new Map(sources.map((e) => [e.decisionId, e]));
+
+  return pending.map((d) => {
+    const src = sourceByDecision.get(d.id);
+    const meta =
+      (src?.category && TAGS[src.category]) ||
+      SIGNAL_TAGS.find(([sig]) => src?.riskSignals.includes(sig))?.[1] || { tag: "Решение", tone: "amber" as Tone };
+    return {
+      id: d.id,
+      type: d.type,
+      tag: d.reminderCount > 0 ? `${meta.tag} · повтор ×${d.reminderCount + 1}` : meta.tag,
+      tone: meta.tone,
+      from: src?.senderName ?? "",
+      when: src ? fmtTime(src.receivedAt) : "",
+      title: d.title,
+      summary: d.contextSummary,
+      draft: d.draftText,
+      recommendation: d.aiRecommendation,
+      reasons: d.gateReasons,
+      reminderCount: d.reminderCount,
+    };
+  });
+}
+
 export async function getToday(db: PrismaClient, leaderId: string): Promise<TodayData> {
   const clk = await readyClock();
   const now = clk.now();
@@ -112,33 +141,8 @@ export async function getToday(db: PrismaClient, leaderId: string): Promise<Toda
     }),
   ]);
 
-  // Карточки: первое письмо треда даёт отправителя, категорию и время.
   const decisionIds = pending.map((d) => d.id);
-  const sources = await db.emailItem.findMany({
-    where: { leaderId, decisionId: { in: decisionIds }, occurrence: 1 },
-  });
-  const sourceByDecision = new Map(sources.map((e) => [e.decisionId, e]));
-
-  const decisions: DecisionCard[] = pending.map((d) => {
-    const src = sourceByDecision.get(d.id);
-    const meta =
-      (src?.category && TAGS[src.category]) ||
-      SIGNAL_TAGS.find(([sig]) => src?.riskSignals.includes(sig))?.[1] || { tag: "Решение", tone: "amber" as Tone };
-    return {
-      id: d.id,
-      type: d.type,
-      tag: d.reminderCount > 0 ? `${meta.tag} · повтор ×${d.reminderCount + 1}` : meta.tag,
-      tone: meta.tone,
-      from: src?.senderName ?? "",
-      when: src ? fmtTime(src.receivedAt) : "",
-      title: d.title,
-      summary: d.contextSummary,
-      draft: d.draftText,
-      recommendation: d.aiRecommendation,
-      reasons: d.gateReasons,
-      reminderCount: d.reminderCount,
-    };
-  });
+  const decisions = await buildDecisionCards(db, leaderId, pending);
 
   const total = emails.length;
   const needLeader = emails.filter((e) => e.action === "ASK_LEADER");
