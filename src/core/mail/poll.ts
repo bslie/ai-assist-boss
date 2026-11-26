@@ -55,7 +55,10 @@ export async function pollConnector(db: PrismaClient, leaderId: string, connecto
   try {
     if (!mail) return { ok: false, skipped: false, message: "Нет доступа к почте: войдите заново в разделе «Подключения»" };
     const stored = decryptJson<Stored>(row.encryptedConfig);
-    const { emails, cursor } = await mail.listNew(stored?.cursor ?? null, BATCH);
+    const fetched = await mail.listNew(stored?.cursor ?? null, BATCH);
+    const cursor = fetched.cursor;
+    // Письма приходят в реальном времени, а система живёт в демо-часах (SPEC 4.7): время получения переводим в демо.
+    const emails = fetched.emails.map((e) => ({ ...e, receivedAt: clock.toDemo(e.receivedAt) }));
 
     const stats = await ingestEmails(db, deps.llm, leaderId, emails, { connectorId, draft: deps.draft, emit: deps.emit });
     const archived = await archiveNewsletters(db, leaderId, connectorId, mail, emails.map((e) => e.externalId).filter((x): x is string => Boolean(x)));

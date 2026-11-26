@@ -14,6 +14,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "worker": "tsx worker/index.ts",
     "tg:link": "tsx scripts/telegram-link.ts",
+    "mail:send": "tsx scripts/send-dataset-emails.ts",
     "user:create": "tsx scripts/create-app-user.ts",
     "postinstall": "prisma generate"
   },

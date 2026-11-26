@@ -49,6 +49,12 @@ export class Clock {
     return new Date(this.realNow() + this.offsetMs);
   }
 
+  /** Реальный момент (например, время получения письма) → демо-время. В режиме real — без изменений. */
+  toDemo(real: Date): Date {
+    if (this.offsetMs === null) throw new Error("Clock is not initialized: call `await clock.init()` before `clock.toDemo()`");
+    return new Date(real.getTime() + this.offsetMs);
+  }
+
   /**
    * Загружает смещение из хранилища. При первом запуске считает его так,
    * чтобы «сейчас» = demoStart, и сохраняет (общее для всех процессов).
