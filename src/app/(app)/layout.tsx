@@ -4,7 +4,7 @@ import { AppHeader } from "@/components/assistant/app-header";
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen flex-col">
-      <AppHeader title="ИИ-помощник" />
+      <AppHeader title="ИИ-помощник руководителя" />
       {children}
     </div>
   );
