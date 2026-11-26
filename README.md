@@ -1,36 +1,85 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ИИ-помощник руководителя
 
-## Getting Started
+Хакатон «ИИкузница» (Softline), трек «Цифровой аватар». Помощник снимает с руководителя коммуникационную и операционную рутину: разбирает почту, приносит решения карточками в Telegram, ставит и принимает поручения, ведёт протоколы встреч и выходит на созвон аватаром.
 
-First, run the development server:
+Требования и логика — в [SPEC.md](SPEC.md), правила разработки и отступления от спеки — в [CLAUDE.md](CLAUDE.md).
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## Что внутри
+
+| Часть | Где | Что делает |
+|---|---|---|
+| Веб | `src/app` | Next.js: «Разговор» (сегодня и чат), «Поручения», «Как я работаю» (правила), «Рутины», «Метрики», «Профиль», «Подключения», `/control` (админ), `/avatar/[token]` (камера бота) |
+| Ядро | `src/core` | Policy Gate, разбор почты, поручения, правила и обучение, встречи, профиль, коннекторы, LLM-адаптер с кэшем и учётом стоимости, демо-время |
+| Воркер | `worker/` | Telegram-бот (grammY), тик-планировщик рутин, опрос почты, запуск аватара, досье перед встречей |
+| БД | `prisma/` | Схема, миграции, сидер двух руководителей |
+| Данные | `data/` | Датасет организаторов (`tz_dataset`), второй руководитель и добавленные письма (`profiles`), транскрипты, кэши LLM, отчёт eval |
+
+Инварианты, которые держит код (подробнее в SPEC, раздел 1): Policy Gate вне LLM; кадры, письма руководству и обязательства клиентам не переводятся в авто ни правилом, ни словами; деньги выше порога `budgetAutoLimit` тоже; неопределённость уходит на подтверждение; время только через `clock.now()`; все запросы по `leaderId`; агент всегда представляется как «ИИ-помощник <имя>».
+
+## Быстрый старт
+
+Нужны Node 22+, Docker.
+
+```powershell
+docker compose up -d                 # postgres:17 и redis:7
+copy .env.example .env               # заполнить, см. таблицу ниже
+npm install
+npx prisma migrate deploy
+npm run db:seed                      # оба руководителя; один: npm run db:seed -- --only tatyana-gromova
+npm run dev                          # веб, http://localhost:3000
+npm run worker                       # Telegram, рутины, почта (отдельный процесс)
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Вход: `APP_USER_PASSWORD=... npm run user:create -- --login admin --name "Администратор" --role ADMIN`. Руководителю: `--role LEADER --leader ivan-petrov`. Привязка Telegram руководителя: `npm run tg:link -- ivan-petrov`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Переменные окружения
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Полный список с пояснениями — в [.env.example](.env.example). Главное:
 
-## Learn More
+| Переменная | Зачем |
+|---|---|
+| `DATABASE_URL`, `REDIS_URL` | Postgres и Redis (Redis — демо-часы, шина событий, блокировки) |
+| `AUTH_SECRET`, `CONNECTOR_SECRET` | подпись сессий и шифрование доступов подключений (`openssl rand -hex 32`) |
+| `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` | любой OpenAI-совместимый эндпоинт (GigaChat, YandexGPT, vLLM, Ollama меняются только этим). Без `LLM_BASE_URL` модель отвечает из кэша |
+| `LLM_PRICE_INPUT_RUB_PER_M`, `LLM_PRICE_OUTPUT_RUB_PER_M`, `RECALL_PRICE_RUB_PER_HOUR` | цены для расчёта стоимости запроса; не заданы → в учёте токены, стоимость 0 |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `TELEGRAM_BIND_KEY` | бот и привязка чатов |
+| `APP_URL` | публичный адрес (страница аватара для Recall, ссылки) |
+| `APP_DEMO_START`, `APP_CLOCK_MODE=real` | демо-время (по умолчанию 07.12.2026 08:30 МСК) или реальное |
+| `RECALL_API_KEY`, `RECALL_WEBHOOK_SECRET`, `DEMO_MEETING_URL` | аватар на встрече в Zoom |
+| `DATASET_SMTP_*`, `DATASET_TARGET_EMAIL`, `MAIL_DATASET_SENDER` | отправка писем датасета в реальный ящик |
 
-To learn more about Next.js, take a look at the following resources:
+## Сквозной сценарий демо
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+1. **Утро.** Админ → «Демо-стенд»: «Утренний план». Воркер присылает руководителю в Telegram план дня и карточки решений. Утвердить, одно поправить: бот спросит «запомнить как правило?».
+2. **Почта.** Письма датасета в реальный ящик: `npm run mail:send -- --speed 10` (17 уникальных тредов; `--all` — все 80). Воркер забирает их, делегирует, складывает в сводку; повтор письма прикрепляется к карточке («напоминание №N»). Без реального ящика: «Загрузить датасет» в панели.
+3. **Встреча.** Аватар заходит в Zoom, задаёт вопросы по прошлому протоколу. Транскрипт → карточка протокола → «Утвердить»: письмо участникам, поручения исполнителям, следующая встреча серии. Резерв: «Протокол встречи» берёт `data/transcripts`.
+4. **Метрики.** Страница «Метрики»: часы, доля писем без руководителя, задачи с первого раза, время до протокола, результат eval, стоимость по конвейерам (CSV: `/api/usage?format=csv`).
+5. **Второй руководитель.** «Профиль»: вставить `data/profiles/leader2_profile.md`, «Показать изменения», «Применить». Тот же сценарий идёт с другими целями, порогом бюджета (30 000 ₽), правилами и ритмом. Письмо на 18 000 ₽ («Новые письма (демо-пачка)») у первого руководителя идёт карточкой, у второго закрывается через Policy Gate.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Демо-часы: `POST /api/demo/clock` (`{ advanceMinutes }` или `{ reset: true }`), кнопки есть в «Демо-стенде». Тихие часы (20:00–08:00 по демо-времени) откладывают карточки без срочности до утреннего плана.
 
-## Deploy on Vercel
+## Тесты и качество
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```powershell
+npm test                  # vitest: ядро, Policy Gate, eval, Telegram, поручения; нужны Postgres и Redis
+npx tsc --noEmit
+npm run lint
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- `tests/eval-inbox.test.ts`: 80 строк → 17 тредов, точность ≥ 95% по `expected_action`, ни одной защищённой строки без руководителя, повторы не создают новых карточек. LLM идёт через кэш `tests/fixtures/llm-cache.json`; отчёт — `data/eval/inbox-report.json` (`/api/eval/inbox`).
+- `tests/risk-signals*.test.ts`: детерминированные сигналы без LLM срабатывают на всех 40 строках «спросить руководителя» и ни на одной из остальных.
+
+## Что и в каком приоритете
+
+| | Состояние |
+|---|---|
+| P0 | Policy Gate (шаги 1–5), разбор почты и повторы, порог бюджета, eval, импорт профиля и два руководителя, демо-время и тик-планировщик, Telegram (роли, карточки, правка → «запомнить»), протокол из транскрипта и рассылка, вопросы по прошлому протоколу, страница аватара, MailConnector (IMAP, Graph, Gmail), `send-dataset-emails`, учёт стоимости, API и страницы «Сегодня», «Правила», «Профиль» |
+| P1 | Перенос срока, контроль сроков и эскалация, автоприёмка, итог недели, правила словами (веб и Telegram), реестр поручений и страница, рутины, поручения из чата, антиспам (тихие часы), следующая встреча серии |
+| P2 | Досье перед 1:1 и встречей с партнёром, удалённый MCP (`/api/connectors`, права инструментов) |
+| Не сделано | Голос (STT/TTS-сервис, нужны ключи), CalDAV, потоковый аватар с синхронизацией губ (HeyGen/Tavus), совпадения режима тени по категориям (флаг `shadowMode` в Gate есть), запись событий в календарь Graph |
+
+## Развёртывание
+
+`docker-compose.prod.yml` (app, worker, postgres, redis) + CI в `.github/workflows/ci-deploy.yml`: тесты, сборка образа, выкладка по SSH. Нужен `.env` рядом с compose-файлом и `POSTGRES_PASSWORD`. Миграции применяет контейнер `app` при старте. HTTPS — обратный прокси перед `127.0.0.1:3000`.
+
+Данные для демо не секретны (синтетические), но `.env`, токены и ключи в репозиторий не попадают.
