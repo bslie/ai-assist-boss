@@ -1,0 +1,301 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum ToolPermission {
+  AUTO
+  APPROVE
+  DENY
+}
+
+enum EmailCategory {
+  HR                // кадры
+  MANAGEMENT        // руководство
+  MONEY             // деньги и бюджеты
+  CLIENT_COMMITMENT // обязательства клиентам
+  INVITATION        // приглашения
+  REPORT            // отчёты
+  STATUS            // статусы
+  SALES             // продажи / КП
+  ACCESS            // доступы
+  CLIENT_SUPPORT    // клиенты (типовые обращения, жалобы)
+  NEWSLETTER        // рассылки
+  CALENDAR          // календарь
+}
+
+enum EmailAction {
+  ASK_LEADER // спросить_руководителя
+  DIGEST     // в_сводку
+  DELEGATE   // делегировать
+  IGNORE     // игнорировать
+  AUTO       // авто
+}
+
+enum DecisionStatus {
+  PENDING
+  APPROVED
+  EDITED_APPROVED
+  DELEGATED
+  REJECTED
+  SNOOZED
+}
+
+enum TaskStatus {
+  NEW
+  ACCEPTED
+  IN_PROGRESS
+  REVIEW           // сдано исполнителем, проверяет ИИ
+  RETURNED         // ИИ вернул на доработку
+  READY_FOR_LEADER // проверено ИИ, ждёт «Принять»
+  DONE
+  ESCALATED
+}
+
+enum ChatRole {
+  LEADER
+  EMPLOYEE
+}
+
+model Leader {
+  id                 String   @id @default(cuid())
+  slug               String   @unique // "ivan-petrov"
+  name               String
+  role               String
+  email              String   @unique
+  budgetAutoLimit    Float    @default(0) // ₽; 0 = деньги всегда с подтверждением
+  quietHoursStart    String   @default("20:00")
+  quietHoursEnd      String   @default("08:00")
+  protectedBlocks    String[] @default(["Стратегия", "1:1"])
+  quarterGoals       Json // string[]
+  stylePrompt        String   @db.Text // манера из «Сделано круто»
+  savedMinutesConfig Json // раздел 7.3, с обоснованием
+  profileMarkdown    String   @db.Text // исходный leader_profile.md
+  profileVersion     Int      @default(1)
+  shadowMode         Boolean  @default(false) // P2
+  createdAt          DateTime @default(now())
+
+  employees  Employee[]
+  bindings   TelegramBinding[]
+  connectors Connector[]
+  rules      Rule[]
+  routines   Routine[]
+  emails     EmailItem[]
+  tasks      Task[]
+  decisions  Decision[]
+  meetings   Meeting[]
+  memories   Memory[]
+  activity   ActivityLog[]
+  usage      UsageLog[]
+}
+
+model Employee {
+  id                 String            @id @default(cuid())
+  leaderId           String
+  leader             Leader            @relation(fields: [leaderId], references: [id], onDelete: Cascade)
+  externalId         String? // p02… из org_structure.csv
+  name               String
+  email              String
+  position           String
+  relationType       String // SUBORDINATE | MANAGER | PEER
+  responsibilityArea String? // "продажи, КП" | "сервис, жалобы" | "доступы, ИТ" …
+  inviteToken        String            @unique @default(cuid()) // t.me/<bot>?start=<inviteToken>
+  tasks              Task[]
+  bindings           TelegramBinding[]
+
+  @@unique([leaderId, email])
+}
+
+// Один Telegram-чат может играть несколько ролей (демо: 3–4 телефона на 9 ролей)
+model TelegramBinding {
+  id         String    @id @default(cuid())
+  chatId     String
+  role       ChatRole
+  leaderId   String
+  leader     Leader    @relation(fields: [leaderId], references: [id], onDelete: Cascade)
+  employeeId String?
+  employee   Employee? @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  isActive   Boolean   @default(false) // активный контекст чата; переключение командой /role
+  createdAt  DateTime  @default(now())
+
+  @@unique([chatId, leaderId, employeeId])
+  @@index([chatId])
+}
+
+model Connector {
+  id              String   @id @default(cuid())
+  leaderId        String
+  leader          Leader   @relation(fields: [leaderId], references: [id], onDelete: Cascade)
+  name            String // "Microsoft 365" | "Yandex Mail" | "Custom MCP"
+  type            String // BUILTIN_GRAPH | BUILTIN_IMAP | REMOTE_MCP
+  mcpUrl          String?
+  encryptedConfig String   @db.Text
+  toolPermissions Json // Record<toolName, ToolPermission>; новые инструменты = APPROVE
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+}
+
+model Rule {
+  id                String      @id @default(cuid())
+  leaderId          String
+  leader            Leader      @relation(fields: [leaderId], references: [id], onDelete: Cascade)
+  name              String
+  description       String // человекочитаемо, показывается в UI и Telegram
+  condition         Json // { category?, senderEmail?, relationType?, maxAmount?, keywords? }
+  action            EmailAction
+  delegateToArea    String? // ключ поиска по Employee.responsibilityArea
+  notifyImmediately Boolean     @default(false)
+  expiresAt         DateTime? // «только на неделю»
+  isSystemLocked    Boolean     @default(false) // защищённые категории: нельзя ослабить
+  source            String // PROFILE_IMPORT | CHAT | EDIT_LEARNING | MANUAL
+  priority          Int         @default(100)
+  createdAt         DateTime    @default(now())
+}
+
+model Routine {
+  id                String    @id @default(cuid())
+  leaderId          String
+  leader            Leader    @relation(fields: [leaderId], references: [id], onDelete: Cascade)
+  code              String // MORNING_DIGEST | WEEKLY_REPORT | DEADLINE_GUARD | CUSTOM
+  title             String
+  cronExpression    String // в демо-времени: "30 8 * * 1-5", "0 17 * * 5"
+  promptInstruction String    @db.Text
+  isActive          Boolean   @default(true)
+  lastRunAt         DateTime? // в демо-времени
+}
+
+model EmailItem {
+  id             String         @id @default(cuid())
+  leaderId       String
+  leader         Leader         @relation(fields: [leaderId], references: [id], onDelete: Cascade)
+  externalId     String? // m001… или id сообщения из почтового ящика
+  threadKey      String // sha256(lower(senderEmail) | normalizedSubject | normalizedBody)
+  occurrence     Int            @default(1) // 1 — первое письмо, 2+ — повторы
+  senderName     String
+  senderEmail    String
+  senderRole     String?
+  subject        String
+  body           String         @db.Text
+  receivedAt     DateTime
+  category       EmailCategory?
+  confidence     Float?
+  riskSignals    String[] // сработавшие детерминированные сигналы
+  extracted      Json? // { amount?, client?, deadline?, summary }
+  action         EmailAction?
+  expectedAction EmailAction? // эталон из датасета, только для eval
+  decisionId     String? // повторы ссылаются на ту же карточку
+  taskId         String?
+  isReadByLeader Boolean        @default(false)
+  createdAt      DateTime       @default(now())
+
+  @@unique([leaderId, externalId])
+  @@index([leaderId, threadKey])
+}
+
+model Task {
+  id                 String     @id @default(cuid())
+  externalId         String? // t001…
+  leaderId           String
+  leader             Leader     @relation(fields: [leaderId], references: [id], onDelete: Cascade)
+  assigneeId         String?
+  assignee           Employee?  @relation(fields: [assigneeId], references: [id])
+  title              String
+  description        String     @db.Text
+  acceptanceCriteria String     @db.Text
+  isTypical          Boolean    @default(false) // типовую ИИ закрывает сам после проверки
+  isClientCommitment Boolean    @default(false)
+  sourceType         String // EMAIL | MEETING | CHAT | DATASET
+  sourceRefId        String?
+  dueAt              DateTime
+  status             TaskStatus @default(NEW)
+  csvStatus          String? // статус из tasks.csv как есть
+  rescheduleCount    Int        @default(0)
+  returnCount        Int        @default(0) // метрика «с первого раза»
+  lastSubmission     String?    @db.Text
+  aiReviewComment    String?    @db.Text
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+}
+
+model Decision {
+  id                String         @id @default(cuid())
+  leaderId          String
+  leader            Leader         @relation(fields: [leaderId], references: [id], onDelete: Cascade)
+  type              String // EMAIL_REPLY | BUDGET_APPROVAL | MEETING_PROTOCOL | TASK_ACCEPT | TASK_RESCHEDULE | CALENDAR_INVITE | RULE_CHANGE | MEMORY_SAVE | TOOL_CALL
+  title             String
+  contextSummary    String         @db.Text
+  gateReasons       String[] // почему не автоматически
+  aiRecommendation  String
+  proposedPayload   Json // { tool, args } — выполнится после «Утвердить»
+  draftText         String?        @db.Text
+  editedText        String?        @db.Text
+  reminderCount     Int            @default(0) // сколько повторов письма привязано
+  status            DecisionStatus @default(PENDING)
+  telegramMessageId String?
+  createdAt         DateTime       @default(now())
+  resolvedAt        DateTime?
+}
+
+model Meeting {
+  id                 String    @id @default(cuid())
+  externalId         String?
+  leaderId           String
+  leader             Leader    @relation(fields: [leaderId], references: [id], onDelete: Cascade)
+  title              String
+  category           String // OPERATIONAL | MONEY | CLIENT | PARTNER | MANAGEMENT | ONE_ON_ONE
+  startAt            DateTime
+  endAt              DateTime
+  meetingUrl         String?
+  participationMode  String    @default("LEADER") // LEADER | AVATAR | ASYNC_STATUS
+  avatarToken        String    @unique @default(cuid()) // для публичной страницы аватара
+  recallBotId        String?
+  previousMeetingId  String?
+  agendaQuestions    Json?
+  transcript         String?   @db.Text
+  protocolMarkdown   String?   @db.Text
+  protocolReadyAt    DateTime? // метрика «время от конца встречи до протокола»
+  isProtocolApproved Boolean   @default(false)
+  createdAt          DateTime  @default(now())
+}
+
+model Memory {
+  id         String   @id @default(cuid())
+  leaderId   String
+  leader     Leader   @relation(fields: [leaderId], references: [id], onDelete: Cascade)
+  sourceType String // EDIT_LEARNING | VOICE_NOTE | EXPLICIT
+  ruleText   String
+  scope      String   @default("GLOBAL") // GLOBAL | EMAIL | MEETING | TASK
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+}
+
+model ActivityLog {
+  id           String   @id @default(cuid())
+  leaderId     String
+  leader       Leader   @relation(fields: [leaderId], references: [id], onDelete: Cascade)
+  pipeline     String // EMAIL | MEETING | TASK | CALENDAR | ROUTINE | GATE
+  action       String
+  reason       String // ответ на «почему ты так сделал?»
+  savedMinutes Int      @default(0)
+  metadata     Json?
+  createdAt    DateTime @default(now())
+}
+
+model UsageLog {
+  id               String   @id @default(cuid())
+  leaderId         String
+  leader           Leader   @relation(fields: [leaderId], references: [id], onDelete: Cascade)
+  pipeline         String // EMAIL_TRIAGE | PROTOCOL_GEN | TASK_REVIEW | PROFILE_IMPORT | CHAT | AVATAR_SESSION
+  provider         String
+  model            String
+  promptTokens     Int      @default(0)
+  completionTokens Int      @default(0)
+  audioSeconds     Float    @default(0)
+  cached           Boolean  @default(false)
+  costRub          Float    @default(0)
+  createdAt        DateTime @default(now())
+}
