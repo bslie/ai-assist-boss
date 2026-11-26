@@ -24,7 +24,7 @@ function llmWith(out: { answer?: string; actions?: Record<string, unknown>[] }) 
   };
   return { llm: new LlmClient({ provider, cache: new MemoryCache() }), calls };
 }
-const none = { rule: null, style: null, reply: null };
+const none = { rule: null, style: null, reply: null, task: null };
 const act = (kind: string, p: Record<string, unknown>) => ({ kind, ...none, ...p });
 
 describe.skipIf(!dbUp)("чат (Postgres)", () => {
@@ -45,6 +45,26 @@ describe.skipIf(!dbUp)("чат (Postgres)", () => {
     const r = await handleChat(db, llm, leaderId, "Что на сегодня?");
     expect(calls).toHaveLength(0);
     expect(r.text).toMatch(/решений|вопрос|встреч/i);
+  });
+
+  it("«поставь Смирновой задачу…» создаёт поручение; без срока, неизвестный человек и неоднозначность — уточнение", async () => {
+    const due = new Date(clock.now().getTime() + 2 * 86_400_000).toISOString();
+    const ok = llmWith({ actions: [act("TASK", { task: { assignee: "Смирновой", title: "Подготовить КП для ТехноСтрой", dueAt: due } })] });
+    const r = await handleChat(db, ok.llm, leaderId, "Поставь Смирновой задачу подготовить КП");
+    expect(r.text).toContain("Поставила задачу");
+    const t = await db.task.findFirstOrThrow({ where: { leaderId, title: "Подготовить КП для ТехноСтрой" }, include: { assignee: true } });
+    expect(t).toMatchObject({ status: "NEW", sourceType: "CHAT", notifiedAt: null });
+    expect(t.assignee?.name).toBe("Ольга Смирнова");
+
+    const noDue = llmWith({ actions: [act("TASK", { task: { assignee: "Смирновой", title: "Сделать что-то важное", dueAt: null } })] });
+    expect((await handleChat(db, noDue.llm, leaderId, "Поставь Смирновой задачу")).text).toContain("Какой срок");
+    const nobody = llmWith({ actions: [act("TASK", { task: { assignee: "Несуществующему", title: "Сделать что-то важное", dueAt: due } })] });
+    expect((await handleChat(db, nobody.llm, leaderId, "Поставь ему задачу")).text).toContain("Не нашла");
+    const bad = llmWith({ actions: [act("TASK", { task: { assignee: "Смирновой", title: "Сделать что-то важное", dueAt: "послезавтра" } })] });
+    expect((await handleChat(db, bad.llm, leaderId, "Поставь Смирновой")).text).toContain("Не поняла срок");
+    expect(await db.task.count({ where: { leaderId, title: "Сделать что-то важное" } })).toBe(0);
+    // чужой руководитель не видит поручение
+    expect(await db.task.count({ where: { leaderId: otherId, title: "Подготовить КП для ТехноСтрой" } })).toBe(0);
   });
 
   it("правило словами создаёт Rule; защищённую категорию в авто не пускает", async () => {
