@@ -1,0 +1,13 @@
+.git
+.github
+.next
+node_modules
+.env
+.env.*
+!.env.example
+.claude
+data/cache
+src/generated
+scratch-live.ts
+tsconfig.tsbuildinfo
+*.log

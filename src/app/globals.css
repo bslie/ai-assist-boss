@@ -7,7 +7,18 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
+  --font-sans: var(--font-inter), system-ui, sans-serif;
+  --font-serif: var(--font-fraunces), Georgia, serif;
+  --color-ink: var(--ink);
+  --color-raised: var(--raised);
+  --color-sunken: var(--sunken);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-soft: var(--soft);
+  --color-dim: var(--dim);
+  --color-amber: var(--amber);
+  --color-sage: var(--sage);
+  --color-coral: var(--coral);
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-sans);
   --color-sidebar-ring: var(--sidebar-ring);
@@ -49,72 +60,50 @@
 }
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
+  /* Дизайн-токены прототипа (тёмная тёплая тема) */
+  --ink: #12110f;
+  --sunken: #1c1a17;
+  --raised: #26231f;
+  --line: #33302a;
+  --line-strong: #4a453b;
+  --soft: #c9c2b3;
+  --dim: #a39b8c;
+  --amber: #f0b35a;
+  --sage: #9ccfa8;
+  --coral: #e8877b;
+  --background: var(--ink);
+  --foreground: #f3ede2;
+  --card: var(--raised);
+  --card-foreground: #f3ede2;
+  --popover: var(--raised);
+  --popover-foreground: #f3ede2;
+  --primary: #f3ede2;
+  --primary-foreground: var(--ink);
+  --secondary: var(--raised);
+  --secondary-foreground: #f3ede2;
+  --muted: var(--sunken);
+  --muted-foreground: var(--dim);
+  --accent: var(--raised);
+  --accent-foreground: #f3ede2;
+  --destructive: var(--coral);
+  --border: var(--line);
+  --input: var(--line-strong);
+  --ring: var(--amber);
+  --chart-1: var(--amber);
+  --chart-2: var(--sage);
+  --chart-3: var(--coral);
+  --chart-4: var(--dim);
+  --chart-5: var(--line-strong);
   --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
-}
-
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --sidebar: var(--sunken);
+  --sidebar-foreground: #f3ede2;
+  --sidebar-primary: var(--amber);
+  --sidebar-primary-foreground: #1b1305;
+  --sidebar-accent: var(--raised);
+  --sidebar-accent-foreground: #f3ede2;
+  --sidebar-border: var(--line);
+  --sidebar-ring: var(--amber);
+  color-scheme: dark;
 }
 
 @layer base {
@@ -126,5 +115,70 @@
   }
   html {
     @apply font-sans;
+    font-size: 15px;
+    line-height: 1.5;
   }
 }
+/* В слое base, чтобы утилиты (outline-none у поля ввода) могли его отключить. */
+@layer base {
+  :focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+}
+
+/* Чат: свои анимации и прокрутка без системных полос. */
+@keyframes chat-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes chat-dot {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.35; }
+  40% { transform: translateY(-4px); opacity: 1; }
+}
+@keyframes chat-panel {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
+}
+.chat-in { animation: chat-in 280ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.chat-panel { animation: chat-panel 320ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.chat-dot { animation: chat-dot 1.1s ease-in-out infinite; }
+.no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.chat-fade {
+  mask-image: linear-gradient(to bottom, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-in, .chat-panel, .chat-dot { animation: none; }
+}
+
+/* Главная: печатающийся заголовок и каскадное появление блоков. */
+@keyframes rise-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+@keyframes caret-blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+@keyframes tick-pop { from { transform: scale(0); } to { transform: scale(1); } }
+.rise { animation: rise-in 520ms cubic-bezier(0.2, 0.8, 0.2, 1) both; animation-delay: var(--d, 0ms); }
+.type-caret {
+  display: inline-block; width: 2px; height: 0.9em; margin-left: 2px; margin-right: -2px;
+  vertical-align: -0.08em; background: var(--amber); position: relative;
+}
+.type-caret-blink { animation: caret-blink 1s steps(1) infinite; }
+.pulse-dot { animation: tick-pop 360ms cubic-bezier(0.3, 1.6, 0.5, 1) both; animation-delay: var(--d, 0ms); }
+@media (prefers-reduced-motion: reduce) { .rise, .pulse-dot, .type-caret-blink { animation: none; } .type-caret { display: none; } }
+html[data-intro-done] .rise, html[data-intro-done] .pulse-dot { animation: none; }
+
+/* Переход между разделами: едва заметное появление. */
+@keyframes page-fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@keyframes slide-from-right { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: none; } }
+@keyframes slide-from-left { from { opacity: 0; transform: translateX(-28px); } to { opacity: 1; transform: none; } }
+.page-fade { animation: page-fade 200ms ease-out both; }
+.page-slide-right { animation: slide-from-right 320ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.page-slide-left { animation: slide-from-left 320ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+@media (prefers-reduced-motion: reduce) { .page-fade, .page-slide-right, .page-slide-left { animation: none; } }
+
+/* Страница: тонкая тёмная полоса вместо системной. */
+html { scrollbar-width: thin; scrollbar-color: #3d3931 transparent; }
+
+/* Панель подключения: выезжает справа. */
+@keyframes drawer-in { from { transform: translateX(32px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+dialog.drawer[open] { animation: drawer-in 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+dialog.drawer[open]::backdrop { animation: fade-in 260ms ease-out both; }
+@media (prefers-reduced-motion: reduce) { dialog.drawer[open], dialog.drawer[open]::backdrop { animation: none; } }
+

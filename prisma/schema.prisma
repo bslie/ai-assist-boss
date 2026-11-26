@@ -14,26 +14,26 @@ enum ToolPermission {
 }
 
 enum EmailCategory {
-  HR                // кадры
-  MANAGEMENT        // руководство
-  MONEY             // деньги и бюджеты
+  HR // кадры
+  MANAGEMENT // руководство
+  MONEY // деньги и бюджеты
   CLIENT_COMMITMENT // обязательства клиентам
-  INVITATION        // приглашения
-  REPORT            // отчёты
-  STATUS            // статусы
-  SALES             // продажи / КП
-  ACCESS            // доступы
-  CLIENT_SUPPORT    // клиенты (типовые обращения, жалобы)
-  NEWSLETTER        // рассылки
-  CALENDAR          // календарь
+  INVITATION // приглашения
+  REPORT // отчёты
+  STATUS // статусы
+  SALES // продажи / КП
+  ACCESS // доступы
+  CLIENT_SUPPORT // клиенты (типовые обращения, жалобы)
+  NEWSLETTER // рассылки
+  CALENDAR // календарь
 }
 
 enum EmailAction {
   ASK_LEADER // спросить_руководителя
-  DIGEST     // в_сводку
-  DELEGATE   // делегировать
-  IGNORE     // игнорировать
-  AUTO       // авто
+  DIGEST // в_сводку
+  DELEGATE // делегировать
+  IGNORE // игнорировать
+  AUTO // авто
 }
 
 enum DecisionStatus {
@@ -49,8 +49,8 @@ enum TaskStatus {
   NEW
   ACCEPTED
   IN_PROGRESS
-  REVIEW           // сдано исполнителем, проверяет ИИ
-  RETURNED         // ИИ вернул на доработку
+  REVIEW // сдано исполнителем, проверяет ИИ
+  RETURNED // ИИ вернул на доработку
   READY_FOR_LEADER // проверено ИИ, ждёт «Принять»
   DONE
   ESCALATED
@@ -79,18 +79,39 @@ model Leader {
   shadowMode         Boolean  @default(false) // P2
   createdAt          DateTime @default(now())
 
-  employees  Employee[]
-  bindings   TelegramBinding[]
-  connectors Connector[]
-  rules      Rule[]
-  routines   Routine[]
-  emails     EmailItem[]
-  tasks      Task[]
-  decisions  Decision[]
-  meetings   Meeting[]
-  memories   Memory[]
-  activity   ActivityLog[]
-  usage      UsageLog[]
+  employees           Employee[]
+  bindings            TelegramBinding[]
+  connectors          Connector[]
+  businessConnections BusinessConnection[]
+  rules               Rule[]
+  routines            Routine[]
+  emails              EmailItem[]
+  tasks               Task[]
+  decisions           Decision[]
+  meetings            Meeting[]
+  memories            Memory[]
+  activity            ActivityLog[]
+  usage               UsageLog[]
+  appUsers            AppUser[]
+}
+
+enum AppRole {
+  ADMIN  // панель управления приложением
+  LEADER // свой кабинет руководителя
+}
+
+// Учётная запись для входа в приложение: логин+пароль или Telegram (Login Widget).
+// Без привязки к руководителю (leaderId = null) доступна только ADMIN; вход без записи запрещён.
+model AppUser {
+  id           String   @id @default(cuid())
+  login        String   @unique
+  passwordHash String?  // scrypt, формат «scrypt$N$r$p$salt$hash»; null — только Telegram
+  telegramId   String?  @unique
+  displayName  String
+  role         AppRole  @default(LEADER)
+  leaderId     String?
+  leader       Leader?  @relation(fields: [leaderId], references: [id], onDelete: SetNull)
+  createdAt    DateTime @default(now())
 }
 
 model Employee {
@@ -124,6 +145,23 @@ model TelegramBinding {
 
   @@unique([chatId, leaderId, employeeId])
   @@index([chatId])
+}
+
+// Подключение Telegram Business: бот работает в личных чатах аккаунта руководителя.
+// Руководитель определяется по его LEADER-привязке к чату userChatId (fail closed: нет привязки — нет записи).
+model BusinessConnection {
+  id           String   @id @default(cuid())
+  connectionId String   @unique // business_connection_id из Telegram
+  leaderId     String
+  leader       Leader   @relation(fields: [leaderId], references: [id], onDelete: Cascade)
+  userId       String // Telegram user id владельца аккаунта: его собственные сообщения не разбираем
+  userChatId   String
+  canReply     Boolean  @default(false)
+  isEnabled    Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([leaderId])
 }
 
 model Connector {
@@ -217,8 +255,12 @@ model Task {
   returnCount        Int        @default(0) // метрика «с первого раза»
   lastSubmission     String?    @db.Text
   aiReviewComment    String?    @db.Text
+  notifiedAt         DateTime? // когда исполнителю ушло поручение в Telegram (демо-время); null — ещё не отправлено
+  telegramMessageId  String? // "chatId:messageId" сообщения с поручением
   createdAt          DateTime   @default(now())
   updatedAt          DateTime   @updatedAt
+
+  @@index([leaderId, assigneeId])
 }
 
 model Decision {
@@ -250,6 +292,7 @@ model Meeting {
   startAt            DateTime
   endAt              DateTime
   meetingUrl         String?
+  attendees          Json? // string[] — адреса участников из календаря
   participationMode  String    @default("LEADER") // LEADER | AVATAR | ASYNC_STATUS
   avatarToken        String    @unique @default(cuid()) // для публичной страницы аватара
   recallBotId        String?

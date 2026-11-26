@@ -1,0 +1,80 @@
+/* Дух-капля. Без data-live="1" персонаж статичен (только моргание).
+   Выражения: data-mood. Позы рук: data-pose. Взгляд: --lx/--ly (единицы viewBox 200x200). */
+.av-root { overflow: visible; }
+.av-root * { transform-box: fill-box; transform-origin: center; }
+
+.av-look { transform: translate(calc(var(--lx, 0) * 1px), calc(var(--ly, 0) * 1px)); }
+.av-eyes { animation: av-blink 5.5s infinite; }
+.av-eyeballs { transition: transform .2s ease; }
+
+/* руки: повороты вокруг плеч в координатах viewBox */
+.av-root .av-arm { transform-box: view-box; transition: transform .3s ease; }
+.av-root .av-arm-l { transform-origin: 40px 112px; transform: rotate(5deg); }
+.av-root .av-arm-r { transform-origin: 160px 112px; transform: rotate(-5deg); }
+.av-db, .av-eyes-happy, .av-eyes-sleepy, .av-mouth-open, .av-z { opacity: 0; }
+
+/* живая (в сценке): ореол, ручки */
+.av-root[data-live="1"] .av-halo { animation: av-halo 3.2s ease-in-out infinite; }
+.av-root[data-live="1"] .av-arm-l { animation: av-flap-l 2.6s ease-in-out infinite; }
+.av-root[data-live="1"] .av-arm-r { animation: av-flap-r 2.6s ease-in-out infinite; }
+
+/* позы */
+.av-root[data-pose="type"] .av-arm-l { animation: av-type-l .15s ease-in-out infinite alternate; }
+.av-root[data-pose="type"] .av-arm-r { animation: av-type-r .15s ease-in-out infinite alternate -.075s; }
+.av-root[data-pose="lift"] .av-db { opacity: 1; }
+.av-root[data-pose="lift"] .av-arm-l { animation: av-curl-l .8s ease-in-out infinite alternate; }
+.av-root[data-pose="lift"] .av-arm-r { animation: av-curl-r .8s ease-in-out infinite alternate; }
+.av-root[data-pose="juggle"] .av-arm-l { animation: av-jug-l .6s ease-in-out infinite alternate; }
+.av-root[data-pose="juggle"] .av-arm-r { animation: av-jug-r .6s ease-in-out infinite alternate -.3s; }
+.av-root[data-pose="wand"] .av-arm-r { animation: av-wand .35s ease-in-out infinite alternate; }
+
+/* говорит */
+.av-root[data-mood="talk"] .av-mouth-closed { opacity: 0; }
+.av-root[data-mood="talk"] .av-mouth-open { opacity: 1; animation: av-talk .24s ease-in-out infinite alternate; }
+
+/* радуется */
+.av-root[data-mood="happy"] .av-eyes { opacity: 0; }
+.av-root[data-mood="happy"] .av-eyes-happy { opacity: 1; }
+.av-root[data-mood="happy"] .av-mouth-closed { opacity: 0; }
+.av-root[data-mood="happy"] .av-mouth-open { opacity: 1; transform: scaleY(.75); }
+
+/* дремлет */
+.av-root[data-mood="sleepy"] .av-eyes { opacity: 0; animation: none; }
+.av-root[data-mood="sleepy"] .av-eyes-sleepy { opacity: 1; }
+.av-root[data-mood="sleepy"] .av-mouth-closed { opacity: 0; }
+.av-root[data-mood="sleepy"] .av-mouth-open { opacity: 1; transform: scale(.4); }
+.av-root[data-mood="sleepy"] .av-z { opacity: 1; animation: av-z 2.4s ease-in-out infinite; }
+.av-root[data-mood="sleepy"] .av-z2 { animation-delay: -1.2s; }
+
+@keyframes av-halo { 0%,100% { opacity: .7; transform: scale(.96); } 50% { opacity: 1; transform: scale(1.04); } }
+@keyframes av-blink { 0%,94%,100% { transform: scaleY(1); } 97% { transform: scaleY(.08); } }
+@keyframes av-flap-l { 0%,100% { transform: rotate(8deg); } 50% { transform: rotate(-6deg); } }
+@keyframes av-flap-r { 0%,100% { transform: rotate(-8deg); } 50% { transform: rotate(6deg); } }
+@keyframes av-type-l { from { transform: rotate(16deg); } to { transform: rotate(4deg); } }
+@keyframes av-type-r { from { transform: rotate(-16deg); } to { transform: rotate(-4deg); } }
+@keyframes av-curl-l { from { transform: rotate(6deg); } to { transform: rotate(135deg); } }
+@keyframes av-curl-r { from { transform: rotate(-6deg); } to { transform: rotate(-135deg); } }
+@keyframes av-jug-l { from { transform: rotate(20deg); } to { transform: rotate(70deg); } }
+@keyframes av-jug-r { from { transform: rotate(-20deg); } to { transform: rotate(-70deg); } }
+@keyframes av-wand { from { transform: rotate(-118deg); } to { transform: rotate(-146deg); } }
+@keyframes av-talk { from { transform: scaleY(.25); } to { transform: scaleY(1); } }
+@keyframes av-z { 0% { opacity: 0; transform: translate(0, 8px); } 40% { opacity: 1; } 100% { opacity: 0; transform: translate(6px, -12px); } }
+
+/* Подсветка элемента, по которому «растеклась» капля: полупрозрачная, клики пропускает. */
+.avatar-goo {
+  background: radial-gradient(120% 140% at 15% 10%, rgba(255, 200, 122, .2), rgba(242, 143, 107, .1));
+  box-shadow: inset 0 0 0 2px rgba(255, 184, 107, .8), inset 0 0 30px rgba(255, 184, 107, .25), 0 0 26px rgba(255, 184, 107, .4);
+  animation: av-goo 1.8s ease-in-out infinite;
+}
+@keyframes av-goo { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.25); } }
+.avatar-bubble { animation: av-bubble .25s ease-out; }
+@keyframes av-bubble { from { opacity: 0; transform: translateY(4px) scale(.96); } to { opacity: 1; transform: none; } }
+
+/* на узких экранах персонаж не нужен: места мало, он бы мешал */
+@media (max-width: 639px) {
+  .avatar-layer, .avatar-goo, .avatar-butterfly { display: none !important; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .av-root *, .avatar-goo { animation: none !important; }
+}
