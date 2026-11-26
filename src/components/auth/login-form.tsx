@@ -84,7 +84,7 @@ export function LoginForm({ telegramBot, next }: Props) {
   }, [telegramBot]);
 
   return (
-    <div className="grid w-full max-w-[960px] overflow-hidden rounded-3xl border border-border bg-raised shadow-2xl shadow-black/40 md:grid-cols-[1fr_420px]">
+    <div data-login-card className="relative z-10 grid w-full max-w-[960px] overflow-hidden rounded-3xl border border-border bg-raised shadow-2xl shadow-black/40 md:grid-cols-[1fr_420px]">
       <aside className="hidden flex-col justify-between gap-10 border-r border-border bg-sunken p-10 md:flex">
         <div className="flex items-center gap-3">
           <svg width="32" height="32" viewBox="0 0 32 32" fill="none" aria-hidden="true">
@@ -92,7 +92,7 @@ export function LoginForm({ telegramBot, next }: Props) {
             <circle cx="16" cy="16" r="9" stroke="var(--amber)" strokeWidth="1.5" opacity="0.6" />
             <circle cx="16" cy="16" r="3.5" fill="var(--amber)" />
           </svg>
-          <span className="font-serif text-lg">ИИ-помощник</span>
+          <span className="font-serif text-lg">ИИ-помощник руководителя</span>
         </div>
         <div className="flex flex-col gap-6">
           <h2 className="font-serif text-[34px] leading-[1.15] tracking-[-0.02em]">
