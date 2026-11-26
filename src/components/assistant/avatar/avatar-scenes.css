@@ -1,0 +1,80 @@
+/* Реквизит сценок персонажа. Появление и исчезновение — на обёртке .avp-stage. */
+.avp-stage { position: absolute; inset: 0; overflow: visible; pointer-events: none; animation: avp-in .35s ease-out; }
+.avp-stage.avp-leaving { animation: avp-out .28s ease-in forwards; }
+.avp-stage > *, .avp-stage svg, .avp-stage span, .avp-stage i, .avp-stage div { pointer-events: none; }
+.avp-stage > * { position: absolute; }
+@keyframes avp-in { from { opacity: 0; transform: scale(.85); } to { opacity: 1; transform: none; } }
+@keyframes avp-out { to { opacity: 0; transform: scale(.7); } }
+
+/* общее */
+.avp-twinkle { animation: avp-twinkle 1.4s ease-in-out infinite; }
+@keyframes avp-twinkle { 0%,100% { opacity: .25; transform: scale(.6); } 50% { opacity: 1; transform: scale(1.2); } }
+
+/* 1. тусовка */
+.avp-friend-in { animation: avp-friend-in 1.3s cubic-bezier(.2,.8,.2,1) both; animation-delay: var(--d); }
+.avp-friend-bounce { transform-origin: 50% 100%; animation: avp-bounce .7s ease-in-out infinite; animation-delay: calc(var(--d) + 1.3s); }
+@keyframes avp-friend-in { from { transform: translate(var(--fx), -180px) rotate(-30deg); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes avp-bounce { 0%,100% { transform: translateY(0) scale(1.06, .94); } 50% { transform: translateY(-24px) scale(.95, 1.06); } }
+.avp-conf { position: absolute; width: 7px; height: 11px; border-radius: 2px; animation: avp-conf 3s linear infinite; }
+@keyframes avp-conf { from { transform: translateY(0) rotate(0); opacity: 1; } to { transform: translateY(330px) rotate(540deg); opacity: .85; } }
+.avp-note { position: absolute; font-size: 22px; color: #FFE2B0; opacity: 0; animation: avp-note 2.8s ease-out infinite; }
+@keyframes avp-note { 0% { opacity: 0; transform: translate(0, 0) rotate(-8deg); } 20% { opacity: 1; } 100% { opacity: 0; transform: translate(14px, -90px) rotate(10deg); } }
+.avp-balloon { position: absolute; transform-origin: 50% 100%; animation: avp-float 3.4s ease-in-out infinite; }
+@keyframes avp-float { 0%,100% { transform: translateY(0) rotate(-4deg); } 50% { transform: translateY(-10px) rotate(4deg); } }
+
+/* 3. учится */
+.avp-flip path { transform-box: view-box; }
+.avp-flip { transform-box: view-box; transform-origin: 56px 30px; animation: avp-flip 3.6s ease-in-out infinite; }
+@keyframes avp-flip { 0%,55%,100% { transform: scaleX(1); opacity: 1; } 75% { transform: scaleX(0); opacity: 1; } 76% { opacity: 0; } 99% { opacity: 0; } }
+.avp-bulb { transform-origin: 50% 100%; animation: avp-bulb 8s ease-in-out infinite; opacity: 0; }
+@keyframes avp-bulb { 0%,58% { opacity: 0; transform: scale(0); } 64% { opacity: 1; transform: scale(1.25); } 70%,92% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(0); } }
+
+/* 4. код */
+.avp-code-line { transform-box: fill-box; transform-origin: left center; animation: avp-typing 2.4s steps(10) infinite; }
+@keyframes avp-typing { 0% { transform: scaleX(0); } 70%,100% { transform: scaleX(1); } }
+.avp-cursor { animation: avp-cursor .9s steps(1) infinite; }
+@keyframes avp-cursor { 50% { opacity: 0; } }
+.avp-bug { position: absolute; width: 34px; height: 26px; border-radius: 13px; background: #fff; color: #1f2533; font: 700 14px/26px system-ui, sans-serif; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,.25); opacity: 0; animation: avp-bug 9s infinite; }
+@keyframes avp-bug { 0%,38% { opacity: 0; transform: scale(.6); } 42%,94% { opacity: 1; transform: scale(1); } 98%,100% { opacity: 0; transform: scale(.6); } }
+.avp-bug span { position: absolute; inset: 0; opacity: 0; }
+.avp-bug-a { color: #E5484D; animation: avp-bug-a 9s infinite; }
+.avp-bug-b { color: #1FA45A; animation: avp-bug-b 9s infinite; }
+@keyframes avp-bug-a { 0%,38% { opacity: 0; } 42%,60% { opacity: 1; } 64%,100% { opacity: 0; } }
+@keyframes avp-bug-b { 0%,66% { opacity: 0; } 70%,92% { opacity: 1; } 96%,100% { opacity: 0; } }
+
+/* 5. кофе */
+.avp-mug { transform-origin: 75% 90%; animation: avp-sip 6s ease-in-out infinite; }
+@keyframes avp-sip { 0%,55%,100% { transform: none; } 66%,84% { transform: translate(-6px, -10px) rotate(-26deg); } }
+.avp-steam path { animation: avp-steam 2.4s ease-in-out infinite; }
+.avp-steam path:nth-child(2) { animation-delay: .5s; }
+.avp-steam path:nth-child(3) { animation-delay: 1s; }
+@keyframes avp-steam { 0% { opacity: 0; transform: translateY(6px); } 40% { opacity: .9; } 100% { opacity: 0; transform: translateY(-8px); } }
+
+/* 6. жонглирование */
+.avp-juggle { width: 100px; height: 20px; }
+.avp-ball-x { position: absolute; left: 0; top: 0; animation: avp-ball-x 1.2s linear infinite alternate; animation-delay: var(--bd); }
+.avp-ball-y { animation: avp-ball-y 1.2s infinite; animation-delay: var(--bd); }
+@keyframes avp-ball-x { from { transform: translateX(0); } to { transform: translateX(88px); } }
+@keyframes avp-ball-y { 0% { transform: translateY(0); animation-timing-function: ease-out; } 50% { transform: translateY(-92px); animation-timing-function: ease-in; } 100% { transform: translateY(0); } }
+
+/* 7. зарядка */
+.avp-sweat { animation: avp-sweat 1.1s ease-out infinite; }
+@keyframes avp-sweat { from { opacity: 1; transform: translate(0, 0); } to { opacity: 0; transform: translate(var(--r), 34px); } }
+
+/* 9. фокус */
+.avp-rabbit { animation: avp-rabbit 7s ease-in-out infinite; }
+@keyframes avp-rabbit { 0%,30% { transform: translateY(64px); } 46%,72% { transform: translateY(-10px); } 76% { transform: translateY(-10px) rotate(-6deg); } 80% { transform: translateY(-10px) rotate(6deg); } 92%,100% { transform: translateY(64px); } }
+.avp-wand { transform-origin: 10% 90%; animation: avp-wand-w .35s ease-in-out infinite alternate; }
+@keyframes avp-wand-w { from { transform: rotate(-14deg); } to { transform: rotate(18deg); } }
+.avp-burst { opacity: 0; animation: avp-burst 7s ease-in-out infinite; }
+@keyframes avp-burst { 0%,38% { opacity: 0; transform: scale(0); } 46% { opacity: 1; transform: scale(1.3) rotate(20deg); } 62%,100% { opacity: 0; transform: scale(.6) rotate(90deg); } }
+
+/* 8. бабочка: отдельный слой, позиция задаётся из JS */
+.avatar-butterfly { position: fixed; left: 0; top: 0; width: 36px; height: 30px; pointer-events: none; z-index: 31; display: none; will-change: transform; }
+.avb-l { transform-box: fill-box; transform-origin: 100% 50%; animation: avb-flap .16s ease-in-out infinite alternate; }
+.avb-r { transform-box: fill-box; transform-origin: 0% 50%; animation: avb-flap .16s ease-in-out infinite alternate; }
+@keyframes avb-flap { from { transform: scaleX(1); } to { transform: scaleX(.3); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .avp-stage *, .avatar-butterfly * { animation: none !important; }
+}
