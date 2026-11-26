@@ -2,13 +2,18 @@
  * Ретрансляция событий в Telegram: что воркер делает на каждое событие шины.
  * Вынесено из worker/, чтобы покрыть тестами без Telegram.
  */
+import { clock } from "../clock";
 import type { LeaderEvent } from "../events";
+import { processRoutineJob } from "./morning";
 import { proposeLearning } from "../learning/propose";
 import type { LlmClient } from "../llm";
 import { dispatchTask, executeApprovedToolCall, type DispatchDeps } from "../tasks/dispatch";
 import { executeBusinessReply } from "./business";
 import { refreshDecisionCard, sendDecisionCard } from "./cards";
 import { esc } from "./types";
+
+/** Рутины, которые демо-сценарий может запустить вручную. */
+export const MANUAL_ROUTINES = ["MORNING_DIGEST", "WEEKLY_REPORT", "DEADLINE_GUARD"] as const;
 
 export interface RelayDeps extends DispatchDeps {
   /** Нужна для обучения на правках. Нет модели — правки просто не анализируются. */
@@ -17,6 +22,12 @@ export interface RelayDeps extends DispatchDeps {
 
 /** Возвращает короткое описание сделанного (для лога) или null, если событие воркеру не нужно. */
 export async function relayEvent(deps: RelayDeps, leaderId: string, e: LeaderEvent): Promise<string | null> {
+  if (e.type === "routine.trigger") {
+    const code = typeof e.data.code === "string" ? e.data.code : null;
+    if (!code || !(MANUAL_ROUTINES as readonly string[]).includes(code)) return null;
+    const res = await processRoutineJob(deps, { routineId: "manual", leaderId, code, firedAt: clock.now().toISOString() });
+    return `рутина ${code} вручную: ${JSON.stringify(res)}`;
+  }
   const id = typeof e.data.id === "string" ? e.data.id : null;
   if (!id) return null;
 

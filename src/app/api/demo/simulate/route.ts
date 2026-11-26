@@ -2,7 +2,7 @@ import path from "node:path";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { readyClock } from "@/core/clock";
-import { loadInbox } from "@/core/dataset";
+import { PROFILES_DIR, loadInbox } from "@/core/dataset";
 import { ingestEmails } from "@/core/email-triage/ingest";
 import { publishEvent } from "@/core/events";
 import { createDraftGenerator } from "@/core/learning/draft";
@@ -30,7 +30,11 @@ const HEADER_RE = /^# meeting:[ \t]*(.+?)[ \t]*(?:\r?\n|$)/;
 const CACHE_FILE =path.resolve(process.cwd(), process.env.LLM_CACHE_FILE ?? "tests/fixtures/llm-cache.json");
 const DRAFT_CACHE_FILE = path.resolve(process.cwd(), "data/cache/llm-drafts.json");
 
-/** `POST /api/demo/simulate?leaderId=` — запуск демо-сценариев. Реализован INGEST_DATASET; остальные ждут воркер. */
+/**
+ * `POST /api/demo/simulate?leaderId=` — запуск демо-сценариев.
+ * INGEST_DATASET / TRIGGER_EMAIL_BATCH — разбор писем (живая LLM или кэш); RUN_MEETING_TRANSCRIPT — протокол;
+ * TRIGGER_MORNING / TRIGGER_WEEKLY — рутина уходит воркеру событием, Telegram есть только у него.
+ */
 export async function POST(req: Request) {
   const auth = await requireLeaderId(req);
   if (!auth.ok) return auth.res;
@@ -62,8 +66,12 @@ export async function POST(req: Request) {
     }
   }
 
-  if (body.data.scenario !== "INGEST_DATASET") {
-    return jsonError(501, `Сценарий ${body.data.scenario} ещё не реализован`);
+  if (body.data.scenario === "TRIGGER_MORNING" || body.data.scenario === "TRIGGER_WEEKLY") {
+    const code = body.data.scenario === "TRIGGER_MORNING" ? "MORNING_DIGEST" : "WEEKLY_REPORT";
+    const leaderChatBound = (await db.telegramBinding.count({ where: { leaderId: auth.leaderId, role: "LEADER" } })) > 0;
+    await publishEvent(auth.leaderId, { type: "routine.trigger", data: { code } });
+    // Отправку делает воркер: без него и без привязанного чата сообщение не придёт, и это видно в ответе.
+    return NextResponse.json({ scenario: body.data.scenario, queued: true, routine: code, leaderChatBound });
   }
 
   await readyClock();
@@ -78,7 +86,9 @@ export async function POST(req: Request) {
   const draftLlm = new LlmClient({ provider, cache: new FileCache(DRAFT_CACHE_FILE), usage: dbUsageSink(db) });
 
   try {
-    const stats = await ingestEmails(db, llm, auth.leaderId, loadInbox(), {
+    // Основной датасет или небольшая добавленная пачка (порог бюджета, повтор, обращение клиента): в eval она не входит.
+    const mails = body.data.scenario === "TRIGGER_EMAIL_BATCH" ? loadInbox(PROFILES_DIR, "extra_inbox.csv") : loadInbox();
+    const stats = await ingestEmails(db, llm, auth.leaderId, mails, {
       emit: (e) => publishEvent(auth.leaderId, e),
       draft: createDraftGenerator(db, draftLlm),
     });

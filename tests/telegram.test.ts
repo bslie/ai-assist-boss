@@ -296,8 +296,33 @@ describe.skipIf(!dbUp)("Telegram (Postgres)", () => {
       expect(sent[0].text).toContain("ИИ-помощник");
       expect(sent[0].text).toContain("1 вопрос");
 
-      expect(await processRoutineJob({ db, messenger: m }, { ...job, code: "WEEKLY_REPORT" })).toMatchObject({ skipped: expect.any(String) });
+      expect(await processRoutineJob({ db, messenger: m }, { ...job, code: "NO_SUCH" })).toMatchObject({ skipped: expect.any(String) });
       expect(await buildMorningDigest(db, leaderId)).toContain("Главное сегодня");
+    });
+
+    it("итог недели: часы, письма, задачи, возвраты; без чата — пропуск", async () => {
+      const job = { routineId: "r", leaderId, code: "WEEKLY_REPORT", firedAt: new Date().toISOString() };
+      const { m, sent } = fakeMessenger();
+      expect(await processRoutineJob({ db, messenger: m }, job)).toEqual({ skipped: "чат руководителя не привязан" });
+      await handleStart(db, chat("L"), `${slug}:${leaderBindSecret(slug, KEY)}`, KEY);
+      expect(await processRoutineJob({ db, messenger: m }, job)).toEqual({ sent: 1 });
+      const text = sent[0].text;
+      expect(text).toContain("Итог недели");
+      expect(text).toContain("ИИ-помощник");
+      expect(text).toContain("Освободила для вас");
+      expect(text).toContain("Открытых задач было");
+      expect(text).toContain("возвратов на доработку");
+    });
+
+    it("ручной запуск рутины событием: только известные коды", async () => {
+      const { relayEvent } = await import("@/core/telegram/relay");
+      await handleStart(db, chat("L"), `${slug}:${leaderBindSecret(slug, KEY)}`, KEY);
+      const { m, sent } = fakeMessenger();
+      expect(await relayEvent({ db, messenger: m }, leaderId, { type: "routine.trigger", data: { code: "WEEKLY_REPORT" } })).toContain("WEEKLY_REPORT");
+      expect(sent).toHaveLength(1);
+      expect(await relayEvent({ db, messenger: m }, leaderId, { type: "routine.trigger", data: { code: "DROP_TABLE" } })).toBeNull();
+      expect(await relayEvent({ db, messenger: m }, leaderId, { type: "routine.trigger", data: {} })).toBeNull();
+      expect(sent).toHaveLength(1);
     });
   });
 });

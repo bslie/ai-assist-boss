@@ -8,6 +8,7 @@ import { getToday, plural } from "../dashboard";
 import { publishEvent } from "../events";
 import type { RoutineJob } from "../scheduler";
 import { sendDecisionCard } from "./cards";
+import { buildWeeklyReport } from "./weekly";
 import { esc, type Messenger } from "./types";
 
 export async function buildMorningDigest(db: PrismaClient, leaderId: string, opts: { resurfaced?: number } = {}): Promise<string> {
@@ -102,9 +103,24 @@ export async function resurfaceSnoozed(db: PrismaClient, leaderId: string): Prom
   return ids;
 }
 
-export async function processRoutineJob({ db, messenger }: JobDeps, job: RoutineJob): Promise<JobResult> {
-  if (job.code !== "MORNING_DIGEST") return { skipped: `рутина ${job.code} ещё не реализована` };
+async function leaderChatIds(db: PrismaClient, leaderId: string): Promise<string[]> {
+  const chats = await db.telegramBinding.findMany({ where: { leaderId, role: "LEADER" }, select: { chatId: true } });
+  return [...new Set(chats.map((c) => c.chatId))];
+}
 
+export async function processRoutineJob(deps: JobDeps, job: RoutineJob): Promise<JobResult> {
+  if (job.code === "MORNING_DIGEST") return runMorning(deps, job);
+  if (job.code === "WEEKLY_REPORT") {
+    const chats = await leaderChatIds(deps.db, job.leaderId);
+    if (chats.length === 0) return { skipped: "чат руководителя не привязан" };
+    const text = await buildWeeklyReport(deps.db, job.leaderId);
+    for (const chatId of chats) await deps.messenger.send(chatId, text);
+    return { sent: chats.length };
+  }
+  return { skipped: `рутина ${job.code} ещё не реализована` };
+}
+
+async function runMorning({ db, messenger }: JobDeps, job: RoutineJob): Promise<JobResult> {
   // Отложенное возвращаем в любом случае: даже без чата оно должно снова появиться в вебе.
   const back = await resurfaceSnoozed(db, job.leaderId);
 
