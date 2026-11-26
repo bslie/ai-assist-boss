@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Activity, Clock, LayoutDashboard, LogOut, Play, UserPlus, Users as UsersIcon, type LucideIcon } from "lucide-react";
+import Link from "next/link";
+import { Activity, ArrowLeft, CheckCircle2, Clock, ClipboardList, KeyRound, LayoutDashboard, LogOut, Play, Search, Send, Users as UsersIcon, UserPlus, X, XCircle, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -54,10 +55,22 @@ export function ControlPanel({ viewer, leaders }: { viewer: { displayName: strin
     router.refresh();
   }
 
+  const initials = viewer.displayName.split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
+
   return (
     <div className="flex min-h-screen flex-1 flex-col bg-background md:flex-row">
-      <aside className="flex shrink-0 flex-row items-center gap-1 overflow-x-auto border-b border-border bg-raised p-3 md:w-56 md:flex-col md:items-stretch md:border-b-0 md:border-r md:p-4" aria-label="Разделы панели">
-        <div className="hidden px-2 pb-4 font-serif text-lg font-medium md:block">Управление</div>
+      <aside className="flex shrink-0 flex-row items-center gap-1 overflow-x-auto border-b border-border bg-sunken p-3 md:sticky md:top-0 md:h-screen md:w-60 md:flex-col md:items-stretch md:border-b-0 md:border-r md:p-4" aria-label="Разделы панели">
+        <div className="hidden items-center gap-2.5 px-2 pb-5 md:flex">
+          <svg width="26" height="26" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+            <circle cx="16" cy="16" r="15" stroke="var(--amber)" strokeWidth="1.5" />
+            <circle cx="16" cy="16" r="9" stroke="var(--amber)" strokeWidth="1.5" opacity="0.6" />
+            <circle cx="16" cy="16" r="3.5" fill="var(--amber)" />
+          </svg>
+          <div className="leading-tight">
+            <div className="font-serif text-base font-medium">Управление</div>
+            <div className="text-[11px] text-dim">Администратор</div>
+          </div>
+        </div>
         {NAV.map((n) => {
           const Icon = n.icon;
           const active = section === n.id;
@@ -69,28 +82,34 @@ export function ControlPanel({ viewer, leaders }: { viewer: { displayName: strin
               aria-current={active ? "page" : undefined}
               className={cn(
                 "flex h-10 shrink-0 items-center gap-2.5 rounded-lg px-3 text-left text-sm transition-colors",
-                active ? "bg-background font-medium text-foreground shadow-sm" : "text-dim hover:bg-background/60 hover:text-foreground",
+                active ? "bg-raised font-medium text-foreground shadow-sm" : "text-dim hover:bg-raised/60 hover:text-foreground",
               )}
             >
-              <Icon className="size-4" aria-hidden="true" />
+              <Icon className={cn("size-4", active && "text-amber")} aria-hidden="true" />
               {n.label}
             </button>
           );
         })}
+        <Link href="/" className="flex h-10 shrink-0 items-center gap-2.5 rounded-lg px-3 text-sm text-dim transition-colors hover:bg-raised/60 hover:text-foreground md:mt-2">
+          <ArrowLeft className="size-4" aria-hidden="true" /> К помощнику
+        </Link>
         <div className="ml-auto flex items-center gap-2 text-sm md:ml-0 md:mt-auto md:flex-col md:items-stretch md:border-t md:border-border md:pt-4">
-          <div className="hidden px-2 md:block">
-            <div className="font-medium">{viewer.displayName}</div>
-            <div className="text-xs text-dim">{viewer.login}</div>
+          <div className="hidden items-center gap-3 px-2 md:flex">
+            <Avatar name={viewer.displayName} fallback={initials} />
+            <div className="min-w-0">
+              <div className="truncate font-medium">{viewer.displayName}</div>
+              <div className="truncate text-xs text-dim">{viewer.login}</div>
+            </div>
           </div>
-          <Button variant="ghost" onClick={logout} className="justify-start gap-2">
+          <Button variant="ghost" onClick={logout} className="justify-start gap-2 text-dim hover:text-foreground">
             <LogOut className="size-4" aria-hidden="true" /> Выйти
           </Button>
         </div>
       </aside>
 
-      <main className="flex min-w-0 flex-1 flex-col gap-6 p-4 sm:p-8 lg:p-10">
+      <main className="mx-auto flex w-full min-w-0 max-w-[1100px] flex-1 flex-col gap-6 p-4 sm:p-8 lg:p-10">
         {section === "overview" ? <Overview /> : null}
-        {section === "users" ? <Users /> : null}
+        {section === "users" ? <Users viewerLogin={viewer.login} /> : null}
         {section === "demo" ? <Demo leaders={leaders} /> : null}
       </main>
     </div>
@@ -131,20 +150,29 @@ function Overview() {
       {summary ? (
         <>
           <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-            <Stat label="Руководители" value={summary.counts.leaders} />
-            <Stat label="Учётные записи" value={summary.counts.appUsers} />
-            <Stat label="Решения в очереди" value={summary.counts.pendingDecisions} />
-            <Stat label="Открытые задачи" value={summary.counts.openTasks} />
+            <Stat icon={UsersIcon} label="Руководители" value={summary.counts.leaders} />
+            <Stat icon={KeyRound} label="Учётные записи" value={summary.counts.appUsers} />
+            <Stat icon={ClipboardList} label="Решения в очереди" value={summary.counts.pendingDecisions} accent={summary.counts.pendingDecisions > 0} />
+            <Stat icon={CheckCircle2} label="Открытые задачи" value={summary.counts.openTasks} />
           </div>
-          <div className="flex flex-col rounded-xl border border-border bg-raised">
-            <div className="flex items-center gap-2 border-b border-border px-5 py-3 text-sm font-medium">
-              <Activity className="size-4" aria-hidden="true" /> Состояние системы
+          <div className="flex flex-col overflow-hidden rounded-xl border border-border bg-raised">
+            <div className="flex items-center justify-between gap-2 border-b border-border px-5 py-3.5 text-sm font-medium">
+              <span className="flex items-center gap-2">
+                <Activity className="size-4 text-amber" aria-hidden="true" /> Состояние системы
+              </span>
+              {summary.health.every((h) => h.ok) ? (
+                <span className="rounded-full bg-sage/15 px-2.5 py-0.5 text-xs font-normal text-sage">Всё работает</span>
+              ) : (
+                <span className="rounded-full bg-coral/15 px-2.5 py-0.5 text-xs font-normal text-coral">
+                  Проблем: {summary.health.filter((h) => !h.ok).length}
+                </span>
+              )}
             </div>
             <ul className="divide-y divide-border">
               {summary.health.map((h) => (
                 <li key={h.name} className="flex items-center justify-between gap-4 px-5 py-3 text-sm">
                   <span className="flex items-center gap-3">
-                    <span className={cn("size-2.5 rounded-full", h.ok ? "bg-emerald-500" : "bg-destructive")} aria-hidden="true" />
+                    {h.ok ? <CheckCircle2 className="size-4 text-sage" aria-label="работает" /> : <XCircle className="size-4 text-coral" aria-label="сбой" />}
                     {h.name}
                   </span>
                   <span className="truncate text-dim">{h.detail}</span>
@@ -160,18 +188,36 @@ function Overview() {
   );
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
+function Stat({ icon: Icon, label, value, accent }: { icon: LucideIcon; label: string; value: number; accent?: boolean }) {
   return (
-    <div className="flex flex-col gap-2 rounded-xl border border-border bg-raised p-5">
-      <span className="text-sm text-dim">{label}</span>
-      <span className="font-serif text-3xl tabular-nums">{value}</span>
+    <div className="flex flex-col gap-3 rounded-xl border border-border bg-raised p-5">
+      <span className="flex items-center gap-2 text-sm text-dim">
+        <Icon className="size-4" aria-hidden="true" /> {label}
+      </span>
+      <span className={cn("font-serif text-4xl tabular-nums", accent && "text-amber")}>{value}</span>
     </div>
+  );
+}
+
+const AVATAR_TONES = ["bg-amber/20 text-amber", "bg-sage/20 text-sage", "bg-coral/20 text-coral", "bg-line-strong/50 text-soft"];
+
+/** Круглый аватар с инициалами; цвет стабилен для одного имени. */
+function Avatar({ name, fallback }: { name: string; fallback?: string }) {
+  const initials = fallback ?? name.split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
+  const tone = AVATAR_TONES[[...name].reduce((a, c) => a + c.charCodeAt(0), 0) % AVATAR_TONES.length];
+  return (
+    <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-full text-xs font-medium", tone)} aria-hidden="true">
+      {initials || "?"}
+    </span>
   );
 }
 
 const EMPTY_FORM = { login: "", displayName: "", role: "LEADER" as "ADMIN" | "LEADER", leaderId: "", password: "", telegramId: "" };
 
-function Users() {
+function Users({ viewerLogin }: { viewerLogin: string }) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const dialogRef = useRef<HTMLDialogElement>(null);
   const [users, setUsers] = useState<AppUserRow[] | null>(null);
   const [leaders, setLeaders] = useState<Leader[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -217,40 +263,102 @@ function Users() {
     if (!r.ok) return setError(r.error);
     setNotice(`Учётная запись «${r.data.user.login}» создана`);
     setForm(EMPTY_FORM);
+    closeDrawer();
     load();
   }
 
+  const openDrawer = () => {
+    setError(null);
+    setOpen(true);
+    dialogRef.current?.showModal();
+  };
+  const closeDrawer = () => {
+    setOpen(false);
+    dialogRef.current?.close();
+  };
+
+  const q = query.trim().toLowerCase();
+  const shown = (users ?? []).filter((u) => !q || [u.login, u.displayName, u.leaderName ?? ""].some((v) => v.toLowerCase().includes(q)));
+
   return (
     <section className="flex flex-col gap-6">
-      <h1 className="font-serif text-3xl font-normal">Пользователи</h1>
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="flex flex-col gap-1">
+          <h1 className="font-serif text-3xl font-normal">Пользователи</h1>
+          <p className="text-sm text-dim">Кто может войти в приложение и чей кабинет увидит.{users ? ` Всего: ${users.length}.` : ""}</p>
+        </div>
+        <Button onClick={openDrawer} className="gap-2">
+          <UserPlus className="size-4" aria-hidden="true" /> Добавить
+        </Button>
+      </div>
 
-      <div className="rounded-xl border border-border bg-raised">
-        <div className="border-b border-border px-5 py-3 text-sm font-medium">Учётные записи</div>
+      {notice ? (
+        <p role="status" className="flex items-center gap-2 rounded-lg border border-sage/30 bg-sage/10 px-3 py-2 text-sm text-sage">
+          <CheckCircle2 className="size-4" aria-hidden="true" /> {notice}
+        </p>
+      ) : null}
+      {error && !open ? <p role="alert" className="text-sm text-coral">{error}</p> : null}
+
+      <div className="overflow-hidden rounded-xl border border-border bg-raised">
+        <div className="flex items-center gap-2 border-b border-border px-4 py-2.5">
+          <Search className="size-4 text-dim" aria-hidden="true" />
+          <input
+            aria-label="Поиск пользователей"
+            placeholder="Найти по имени, логину или руководителю"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="h-8 w-full bg-transparent text-sm outline-none placeholder:text-dim/70"
+          />
+        </div>
         {users === null ? (
-          <p className="px-5 py-4 text-sm text-dim">Загружаю…</p>
-        ) : users.length === 0 ? (
-          <p className="px-5 py-4 text-sm text-dim">Записей пока нет.</p>
+          <p className="px-5 py-6 text-sm text-dim">Загружаю…</p>
+        ) : shown.length === 0 ? (
+          <p className="px-5 py-8 text-center text-sm text-dim">{users.length === 0 ? "Записей пока нет. Нажмите «Добавить»." : "Ничего не найдено."}</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
-              <thead className="text-dim">
+              <thead className="text-xs uppercase tracking-wide text-dim">
                 <tr className="border-b border-border">
-                  <th className="px-5 py-2.5 font-normal">Логин</th>
-                  <th className="px-5 py-2.5 font-normal">Имя</th>
+                  <th className="px-5 py-2.5 font-normal">Пользователь</th>
                   <th className="px-5 py-2.5 font-normal">Роль</th>
                   <th className="px-5 py-2.5 font-normal">Руководитель</th>
                   <th className="px-5 py-2.5 font-normal">Способы входа</th>
                 </tr>
               </thead>
               <tbody>
-                {users.map((u) => (
-                  <tr key={u.id} className="border-b border-border last:border-0">
-                    <td className="px-5 py-2.5 font-mono text-[13px]">{u.login}</td>
-                    <td className="px-5 py-2.5">{u.displayName}</td>
-                    <td className="px-5 py-2.5">{u.role === "ADMIN" ? "Администратор" : "Руководитель"}</td>
-                    <td className="px-5 py-2.5 text-dim">{u.leaderName ?? "—"}</td>
-                    <td className="px-5 py-2.5 text-dim">
-                      {[u.hasPassword ? "пароль" : null, u.telegramId ? `Telegram ${u.telegramId}` : null].filter(Boolean).join(", ")}
+                {shown.map((u) => (
+                  <tr key={u.id} className="border-b border-border transition-colors last:border-0 hover:bg-background/40">
+                    <td className="px-5 py-3">
+                      <div className="flex items-center gap-3">
+                        <Avatar name={u.displayName} />
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 font-medium">
+                            {u.displayName}
+                            {u.login === viewerLogin ? <span className="rounded bg-amber/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber">Вы</span> : null}
+                          </div>
+                          <div className="font-mono text-xs text-dim">{u.login}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-5 py-3">
+                      <span className={cn("rounded-full px-2.5 py-0.5 text-xs", u.role === "ADMIN" ? "bg-amber/15 text-amber" : "bg-sage/15 text-sage")}>
+                        {u.role === "ADMIN" ? "Администратор" : "Руководитель"}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3 text-soft">{u.leaderName ?? <span className="text-dim">—</span>}</td>
+                    <td className="px-5 py-3">
+                      <div className="flex flex-wrap gap-1.5">
+                        {u.hasPassword ? (
+                          <span className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-xs text-soft">
+                            <KeyRound className="size-3" aria-hidden="true" /> Пароль
+                          </span>
+                        ) : null}
+                        {u.telegramId ? (
+                          <span className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-xs text-soft" title={`Telegram ID ${u.telegramId}`}>
+                            <Send className="size-3" aria-hidden="true" /> Telegram
+                          </span>
+                        ) : null}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -260,11 +368,24 @@ function Users() {
         )}
       </div>
 
-      <form onSubmit={create} className="flex flex-col gap-4 rounded-xl border border-border bg-raised p-5" aria-label="Новая учётная запись">
-        <div className="flex items-center gap-2 text-sm font-medium">
-          <UserPlus className="size-4" aria-hidden="true" /> Новая учётная запись
+      <dialog
+        ref={dialogRef}
+        onClose={() => setOpen(false)}
+        onClick={(e) => e.target === dialogRef.current && closeDrawer()}
+        aria-label="Новая учётная запись"
+        className="drawer m-0 ml-auto h-dvh max-h-none w-full max-w-md border-l border-border bg-raised p-0 text-foreground backdrop:bg-black/60"
+      >
+      <form onSubmit={create} className="flex h-full flex-col gap-5 overflow-y-auto p-6">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-col">
+            <h2 className="font-serif text-xl">Новая учётная запись</h2>
+            <span className="text-xs text-dim">Нужен пароль, Telegram ID или оба.</span>
+          </div>
+          <button type="button" onClick={closeDrawer} aria-label="Закрыть" className="flex size-9 items-center justify-center rounded-lg text-dim transition-colors hover:bg-background hover:text-foreground">
+            <X className="size-4" />
+          </button>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-4">
           <label className="flex flex-col gap-1 text-sm">
             <span className="text-dim">Логин</span>
             <input className={INPUT} required minLength={3} value={form.login} onChange={(e) => setForm({ ...form, login: e.target.value })} />
@@ -298,13 +419,13 @@ function Users() {
             <input className={INPUT} inputMode="numeric" value={form.telegramId} onChange={(e) => setForm({ ...form, telegramId: e.target.value })} />
           </label>
         </div>
-        <div className="flex flex-wrap items-center gap-3">
+        {error && open ? <p role="alert" className="rounded-lg border border-coral/30 bg-coral/10 px-3 py-2 text-sm text-coral">{error}</p> : null}
+        <div className="mt-auto flex gap-3 border-t border-border pt-4">
           <Button type="submit" disabled={!form.login || !form.displayName || (!form.password && !form.telegramId)}>Создать</Button>
-          <span className="text-xs text-dim">Нужен пароль, Telegram ID или оба.</span>
-          {notice ? <span className="text-sm text-dim">{notice}</span> : null}
-          {error ? <span role="alert" className="text-sm text-destructive">{error}</span> : null}
+          <Button type="button" variant="ghost" onClick={closeDrawer}>Отмена</Button>
         </div>
       </form>
+      </dialog>
     </section>
   );
 }

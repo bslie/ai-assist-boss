@@ -3,9 +3,12 @@ import { z } from "zod";
 import { db } from "@/db/client";
 import { slugify } from "@/db/seed-leader";
 import { jsonError, parseBody } from "@/lib/http";
+import { requireAdmin } from "@/lib/require-admin";
 
-/** Список профилей руководителей (для мастера и переключателя). Данные внутри профиля не отдаём. */
+/** Список профилей руководителей (для мастера и переключателя). Только ADMIN. Данные внутри профиля не отдаём. */
 export async function GET() {
+  const auth = await requireAdmin();
+  if (!auth.ok) return auth.res;
   const leaders = await db.leader.findMany({
     orderBy: { createdAt: "asc" },
     select: { id: true, slug: true, name: true, role: true, email: true, profileVersion: true },
@@ -15,8 +18,10 @@ export async function GET() {
 
 const Create = z.object({ name: z.string().min(2).max(120), role: z.string().min(1).max(200), email: z.string().email() });
 
-/** Мастер: создаёт пустого руководителя; цели и правила приходят через /api/leaders/import. */
+/** Мастер: создаёт пустого руководителя; цели и правила приходят через /api/leaders/import. Только ADMIN. */
 export async function POST(req: Request) {
+  const auth = await requireAdmin();
+  if (!auth.ok) return auth.res;
   const body = await parseBody(req, Create);
   if (!body.ok) return body.res;
   const slug = slugify(body.data.name);

@@ -22,7 +22,12 @@ export const LeaderEventSchema = z.object({
 });
 export type LeaderEvent = z.infer<typeof LeaderEventSchema>;
 
-export const channelFor = (leaderId: string) => `events:${leaderId}`;
+/**
+ * Префикс каналов. Pub/sub в Redis общий для всех баз, поэтому тесты (vitest задаёт `EVENTS_CHANNEL_PREFIX`)
+ * публикуют в свои каналы и не будят живой воркер, который иначе исполнил бы тестовые события раньше теста.
+ */
+const prefix = () => `${process.env.EVENTS_CHANNEL_PREFIX || "events"}:`;
+export const channelFor = (leaderId: string) => `${prefix()}${leaderId}`;
 
 const redisUrl = () => process.env.REDIS_URL ?? "redis://localhost:6379";
 
@@ -71,10 +76,10 @@ export async function subscribeAllEvents(
   const sub = new Redis(redisUrl(), { maxRetriesPerRequest: 1 });
   sub.on("pmessage", (_p, channel, raw) => {
     const parsed = LeaderEventSchema.safeParse(safeJson(raw));
-    if (parsed.success) onEvent(channel.slice("events:".length), parsed.data);
+    if (parsed.success) onEvent(channel.slice(prefix().length), parsed.data);
   });
   sub.on("error", () => {});
-  await sub.psubscribe("events:*");
+  await sub.psubscribe(`${prefix()}*`);
   return async () => {
     sub.removeAllListeners("pmessage");
     await sub.quit().catch(() => {});

@@ -19,17 +19,34 @@ export async function hashPassword(password: string): Promise<string> {
   return ["scrypt", PARAMS.N, PARAMS.r, PARAMS.p, salt.toString("base64"), hash.toString("base64")].join("$");
 }
 
+type ParsedHash = { params: { N: number; r: number; p: number }; salt: Buffer; hash: Buffer };
+
+function parseHash(stored: string | null): ParsedHash | null {
+  const parts = stored?.split("$");
+  if (!parts || parts.length !== 6 || parts[0] !== "scrypt") return null;
+  const [, n, r, p, saltB64, hashB64] = parts;
+  const params = { N: Number(n), r: Number(r), p: Number(p) };
+  if (!Object.values(params).every((v) => Number.isInteger(v) && v > 0)) return null;
+  const hash = Buffer.from(hashB64, "base64");
+  if (hash.length === 0) return null;
+  return { params, salt: Buffer.from(saltB64, "base64"), hash };
+}
+
+// Соль для холостого расчёта: при отсутствующем или битом хэше scrypt всё равно считается,
+// чтобы по времени ответа нельзя было узнать, есть ли такой логин и задан ли у него пароль.
+const DUMMY_SALT = randomBytes(16);
+
 /** Проверка пароля за постоянное время. Любой неразобранный хэш — отказ (fail closed). */
 export async function verifyPassword(password: string, stored: string | null): Promise<boolean> {
-  if (!stored) return false;
-  const parts = stored.split("$");
-  if (parts.length !== 6 || parts[0] !== "scrypt") return false;
-  const [, n, r, p, saltB64, hashB64] = parts;
-  const expected = Buffer.from(hashB64, "base64");
-  const actual = await scrypt(password, Buffer.from(saltB64, "base64"), expected.length, {
-    N: Number(n),
-    r: Number(r),
-    p: Number(p),
-  });
-  return actual.length === expected.length && timingSafeEqual(actual, expected);
+  const parsed = parseHash(stored);
+  if (!parsed) {
+    await scrypt(password, DUMMY_SALT, KEYLEN, PARAMS);
+    return false;
+  }
+  try {
+    const actual = await scrypt(password, parsed.salt, parsed.hash.length, parsed.params);
+    return actual.length === parsed.hash.length && timingSafeEqual(actual, parsed.hash);
+  } catch {
+    return false; // параметры из хэша не приняты scrypt
+  }
 }

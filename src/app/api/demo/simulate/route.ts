@@ -34,6 +34,8 @@ const DRAFT_CACHE_FILE = path.resolve(process.cwd(), "data/cache/llm-drafts.json
 export async function POST(req: Request) {
   const auth = await requireLeaderId(req);
   if (!auth.ok) return auth.res;
+  // Сценарии гоняют живую LLM и пишут в БД: только для панели администратора.
+  if (auth.user.role !== "ADMIN") return jsonError(403, "Нужна роль администратора");
   const body = await parseBody(req, Body);
   if (!body.ok) return body.res;
 
