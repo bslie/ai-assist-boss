@@ -77,7 +77,7 @@ export function DecisionStack({ leaderId, decisions, delegates }: { leaderId: st
           <div className="absolute inset-x-2.5 bottom-2.5 h-10 rounded-b-[22px] border border-line bg-[#211f1b]" />
         </>
       )}
-      <article className="relative flex flex-col gap-[18px] rounded-[22px] border border-[#3d3931] bg-raised p-7">
+      <article className="relative flex flex-col gap-4 rounded-[22px] border border-[#3d3931] bg-raised p-5 sm:gap-[18px] sm:p-7">
         <div className="flex flex-wrap items-center gap-2.5">
           <span className={`rounded-full px-3 py-1 text-xs font-semibold ${TAG[cur.tone]}`}>{cur.tag}</span>
           <span className="text-[13px] text-dim">
@@ -90,7 +90,7 @@ export function DecisionStack({ leaderId, decisions, delegates }: { leaderId: st
         {cur.repeatNote && (
           <div className="rounded-[12px] border border-coral/40 bg-[#2a1a18] px-3.5 py-2.5 text-[13px] text-soft">{cur.repeatNote}</div>
         )}
-        <h2 className="font-serif text-[28px] font-medium leading-tight tracking-tight">{cur.title}</h2>
+        <h2 className="font-serif text-[23px] font-medium leading-tight tracking-tight sm:text-[28px]">{cur.title}</h2>
         <p className="text-soft">{cur.summary}</p>
 
         {cur.draft && (
@@ -150,11 +150,11 @@ export function DecisionStack({ leaderId, decisions, delegates }: { leaderId: st
         {error && <div role="alert" className="rounded-[14px] bg-[#2a1a18] px-3.5 py-2.5 text-[13px] text-coral">{error}</div>}
 
         {mode === "idle" && (
-          <div className="flex flex-wrap gap-2.5">
-            <Button className="h-12 rounded-full px-6 font-semibold" disabled={busy} onClick={() => resolve({ action: "APPROVE" })}>Утвердить</Button>
-            <Button variant="outline" className="h-12 rounded-full px-5" disabled={busy} onClick={() => { setEdited(cur.draft ?? ""); setMode("edit"); }}>Поправить</Button>
-            <Button variant="outline" className="h-12 rounded-full px-5" disabled={busy || delegates.length === 0} onClick={() => setMode("delegate")}>Передать</Button>
-            <Button variant="ghost" className="h-12 rounded-full px-5 text-dim" disabled={busy} onClick={() => resolve({ action: "SNOOZE" })}>Не сейчас</Button>
+          <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap sm:gap-2.5">
+            <Button className="col-span-3 h-12 rounded-full px-6 font-semibold" disabled={busy} onClick={() => resolve({ action: "APPROVE" })}>Утвердить</Button>
+            <Button variant="outline" className="h-12 rounded-full px-3 sm:px-5" disabled={busy} onClick={() => { setEdited(cur.draft ?? ""); setMode("edit"); }}>Поправить</Button>
+            <Button variant="outline" className="h-12 rounded-full px-3 sm:px-5" disabled={busy || delegates.length === 0} onClick={() => setMode("delegate")}>Передать</Button>
+            <Button variant="ghost" className="h-12 rounded-full px-3 text-dim sm:px-5" disabled={busy} onClick={() => resolve({ action: "SNOOZE" })}>Не сейчас</Button>
           </div>
         )}
       </article>

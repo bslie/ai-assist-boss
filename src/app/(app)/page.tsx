@@ -38,13 +38,13 @@ async function Today() {
   return (
     <>
       <LiveRefresh leaderId={leader.id} />
-      <div className="mx-auto grid w-full max-w-[1280px] flex-1 grid-cols-1 items-start gap-10 px-5 pt-6 sm:px-10 lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-14">
-        <main className="flex min-h-[calc(100vh-100px)] min-w-0 flex-col gap-8">
+      <div className="mx-auto grid w-full max-w-[1280px] flex-1 grid-cols-1 content-start items-start gap-8 px-4 pt-2 sm:px-10 sm:pt-6 lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-14">
+        <main className="flex min-w-0 flex-col gap-6 sm:gap-8">
           <section aria-label="Утреннее сообщение" className="flex flex-col gap-4">
             <div className="text-[13px] text-dim">
               {cap(fmt(now, { weekday: "long", day: "numeric", month: "long" }))} · {fmt(now, { hour: "2-digit", minute: "2-digit" })}
             </div>
-            <h1 className="font-serif text-[clamp(30px,5vw,44px)] font-normal leading-[1.12] tracking-[-0.02em]">
+            <h1 className="font-serif text-[clamp(26px,5vw,44px)] font-normal leading-[1.15] tracking-[-0.02em]">
               {greeting(now)}, {firstName}.{" "}
               {headline.total > 0 ? `Я разобрала ${headline.handled} ${plural(headline.handled, "письмо", "письма", "писем")} из ${headline.total}. ` : "Новых писем пока нет. "}
               {headline.waiting > 0 ? (
@@ -54,9 +54,9 @@ async function Today() {
               ) : null}
             </h1>
             {today.doneChips.length > 0 && (
-              <div className="flex flex-wrap gap-2">
+              <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
                 {today.doneChips.map((t) => (
-                  <span key={t} className="flex min-h-9 items-center gap-2 rounded-full border border-line bg-sunken px-3.5 text-[13px] text-soft">
+                  <span key={t} className="flex min-h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-full border border-line bg-sunken px-3.5 text-[13px] text-soft">
                     <span className="size-2 rounded-full bg-sage" />
                     {t}
                   </span>
@@ -67,9 +67,6 @@ async function Today() {
           <section aria-label="Решения">
             <DecisionStack leaderId={leader.id} decisions={today.decisions} delegates={delegates} />
           </section>
-          <div className="mt-auto">
-            <Composer />
-          </div>
         </main>
 
         <aside aria-label="Ваш день" className="flex min-w-0 flex-col gap-8 pt-2 lg:sticky lg:top-6">
@@ -89,6 +86,10 @@ async function Today() {
             </div>
           </div>
         </aside>
+      </div>
+      {/* Строка ввода прилипает к низу экрана на любой ширине; на десктопе стоит в колонке под карточками. */}
+      <div className="sticky bottom-0 z-10 mx-auto mt-4 grid w-full max-w-[1280px] grid-cols-1 px-4 sm:px-10 lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-14">
+        <Composer />
       </div>
     </>
   );
