@@ -23,6 +23,7 @@ export type PollResult =
 export interface PollDeps {
   llm: LlmClient;
   draft?: IngestOptions["draft"];
+  criteria?: IngestOptions["criteria"];
   emit?: IngestOptions["emit"];
   /** Подмена в тестах: готовое подключение вместо сетевого. */
   connector?: MailConnector;
@@ -60,7 +61,7 @@ export async function pollConnector(db: PrismaClient, leaderId: string, connecto
     // Письма приходят в реальном времени, а система живёт в демо-часах (SPEC 4.7): время получения переводим в демо.
     const emails = fetched.emails.map((e) => ({ ...e, receivedAt: clock.toDemo(e.receivedAt) }));
 
-    const stats = await ingestEmails(db, deps.llm, leaderId, emails, { connectorId, draft: deps.draft, emit: deps.emit });
+    const stats = await ingestEmails(db, deps.llm, leaderId, emails, { connectorId, draft: deps.draft, criteria: deps.criteria, emit: deps.emit });
     const archived = await archiveNewsletters(db, leaderId, connectorId, mail, emails.map((e) => e.externalId).filter((x): x is string => Boolean(x)));
 
     await patchStored(db, row, { cursor, lastSync: { at: clock.now().toISOString(), fetched: emails.length } });

@@ -42,6 +42,8 @@ export interface IngestOptions {
   /** Событие для SSE (decision.created, email.processed). Ошибки подписчика не ломают разбор. */
   emit?: (event: LeaderEvent) => Promise<void> | void;
   draft?: (ctx: { leaderId: string; email: IncomingEmail; summary: string }) => Promise<string | null>;
+  /** Измеримый критерий готовности для поручения (SPEC 4.3.1). Ошибка модели → текст по умолчанию, поручение не теряется. */
+  criteria?: (ctx: { leaderId: string; email: IncomingEmail; summary: string }) => Promise<string | null>;
 }
 
 export interface IngestStats {
@@ -233,14 +235,14 @@ export async function ingestEmails(
         : null;
       if (assignee) {
         const due = parseDeadline(c.deadline, new Date(now.getTime() + 24 * 3_600_000));
+        const criteria = (await opts.criteria?.({ leaderId, email, summary: c.summary }).catch(() => null)) ?? null;
         const t = await db.task.create({
           data: {
             leaderId,
             assigneeId: assignee.id,
             title: email.subject,
             description: c.summary,
-            // TODO: LLM-формулировка измеримого критерия (SPEC 4.3.1).
-            acceptanceCriteria: `Ответ или результат по письму «${email.subject}» передан отправителю`,
+            acceptanceCriteria: criteria ?? `Ответ или результат по письму «${email.subject}» передан отправителю`,
             sourceType: "EMAIL",
             sourceRefId: email.externalId ?? null,
             isClientCommitment: false,

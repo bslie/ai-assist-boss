@@ -186,6 +186,13 @@ export async function applyProfile(
       });
     }
 
+    const hasGuard = safe.routines.some((r) => r.code === "DEADLINE_GUARD") || (await tx.routine.findFirst({ where: { leaderId, code: "DEADLINE_GUARD" }, select: { id: true } }));
+    if (!hasGuard) {
+      await tx.routine.create({
+        data: { leaderId, code: "DEADLINE_GUARD", title: "Контроль сроков", cronExpression: "*/30 * * * *", promptInstruction: "За 24 часа до срока — чек-ин исполнителю, при просрочке — напоминание, через сутки — эскалация руководителю." },
+      });
+    }
+
     for (const r of safe.routines) {
       const existing = await tx.routine.findFirst({ where: { leaderId, code: r.code, title: r.title } });
       if (existing) {

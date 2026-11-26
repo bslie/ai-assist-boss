@@ -6,6 +6,7 @@ import { PROFILES_DIR, loadInbox } from "@/core/dataset";
 import { ingestEmails } from "@/core/email-triage/ingest";
 import { publishEvent } from "@/core/events";
 import { createDraftGenerator } from "@/core/learning/draft";
+import { createCriteriaGenerator } from "@/core/tasks/criteria";
 import { generateProtocolDecision, listTranscriptNames, loadTranscript } from "@/core/meetings/protocol";
 import { LlmClient } from "@/core/llm";
 import { dbUsageSink } from "@/core/llm/usage-db";
@@ -91,6 +92,7 @@ export async function POST(req: Request) {
     const stats = await ingestEmails(db, llm, auth.leaderId, mails, {
       emit: (e) => publishEvent(auth.leaderId, e),
       draft: createDraftGenerator(db, draftLlm),
+      criteria: createCriteriaGenerator(draftLlm),
     });
     await publishEvent(auth.leaderId, { type: "metrics.updated", data: {} });
     return NextResponse.json({ scenario: body.data.scenario, stats });

@@ -7,6 +7,8 @@ import { clock } from "../clock";
 import { getToday, plural } from "../dashboard";
 import { publishEvent } from "../events";
 import type { RoutineJob } from "../scheduler";
+import type { LlmClient } from "../llm";
+import { runDeadlineGuard } from "../tasks/lifecycle";
 import { sendDecisionCard } from "./cards";
 import { buildWeeklyReport } from "./weekly";
 import { esc, type Messenger } from "./types";
@@ -73,6 +75,7 @@ export async function waitingForInvite(db: PrismaClient, leaderId: string) {
 export interface JobDeps {
   db: PrismaClient;
   messenger: Messenger;
+  llm?: LlmClient;
 }
 
 export type JobResult = { sent: number } | { skipped: string };
@@ -116,6 +119,10 @@ export async function processRoutineJob(deps: JobDeps, job: RoutineJob): Promise
     const text = await buildWeeklyReport(deps.db, job.leaderId);
     for (const chatId of chats) await deps.messenger.send(chatId, text);
     return { sent: chats.length };
+  }
+  if (job.code === "DEADLINE_GUARD") {
+    const stats = await runDeadlineGuard(deps, job.leaderId);
+    return { sent: stats.checkins + stats.reminders + stats.escalated };
   }
   return { skipped: `рутина ${job.code} ещё не реализована` };
 }

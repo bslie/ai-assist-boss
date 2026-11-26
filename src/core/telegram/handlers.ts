@@ -13,7 +13,9 @@ import { proposeRuleFromText, saveRuleProposal, type RuleProposal } from "../lea
 import { handleChat } from "../chat";
 import type { LlmClient } from "../llm";
 import { randomUUID } from "node:crypto";
+import { clock } from "../clock";
 import { taskText } from "../tasks/dispatch";
+import { parseRescheduleText, requestReschedule, submitResult, taskActionButtons, tellLeader } from "../tasks/lifecycle";
 import { buildDecisionCards } from "../dashboard";
 import { cardButtons, cardText, refreshDecisionCard } from "./cards";
 import { leaderIdsForChat, switchRole } from "./bindings";
@@ -144,6 +146,8 @@ async function handleMemoryCallback(deps: Deps, input: CallbackInput, action: st
 }
 
 const clarifyKey = (chatId: string) => `tg:clarify:${chatId}`;
+const reschedKey = (chatId: string) => `tg:resched:${chatId}`;
+const submitKey = (chatId: string) => `tg:submit:${chatId}`;
 const ruleKey = (id: string) => `tg:rule:${id}`;
 const RULE_TTL = 900;
 
@@ -238,7 +242,12 @@ async function handleTaskCallback(deps: Deps, input: CallbackInput, action: stri
       });
       if (upd.count === 0) return "Уже принято";
       await deps.messenger
-        .edit(input.chatId, input.messageId, `${taskText({ leaderName: "", title: task.title, dueAt: task.dueAt, criteria: task.acceptanceCriteria }).split("\n").slice(1).join("\n")}\n\n<b>Принято в работу.</b>`)
+        .edit(
+          input.chatId,
+          input.messageId,
+          `${taskText({ leaderName: "", title: task.title, dueAt: task.dueAt, criteria: task.acceptanceCriteria }).split("\n").slice(1).join("\n")}\n\n<b>Принято в работу.</b>`,
+          taskActionButtons({ id: task.id, status: "ACCEPTED" }),
+        )
         .catch(() => {});
       await publishEvent(task.leaderId, { type: "task.updated", data: { id: task.id } });
       await notifyLeader(deps, task.leaderId, `${who} принял задачу «${title}».`);
@@ -250,12 +259,57 @@ async function handleTaskCallback(deps: Deps, input: CallbackInput, action: stri
       return "Жду ваш вопрос";
     }
     case "r": {
-      // Перенос срока — P1. Пока сообщаем руководителю, статус и срок не меняем.
-      await notifyLeader(deps, task.leaderId, `${who} сообщает, что не успеет по задаче «${title}». Срок сейчас: ${esc(fmtShort(task.dueAt))}.`);
-      return "Сообщила руководителю";
+      await deps.state.set(reschedKey(input.chatId), task.id, EDIT_TTL);
+      await deps.messenger.send(input.chatId, `Срок сейчас: ${esc(fmtShort(task.dueAt))}. Напишите одним сообщением новую дату (например, 15.12) и причину. Отмена: /cancel`);
+      return "Жду новый срок";
+    }
+    case "s": {
+      await deps.state.set(submitKey(input.chatId), task.id, EDIT_TTL);
+      await deps.messenger.send(input.chatId, `Пришлите результат по задаче «${title}» одним сообщением: текст или ссылку. Отмена: /cancel`);
+      return "Жду результат";
     }
     default:
       return "Неизвестное действие";
+  }
+}
+
+/** Исполнитель прислал новую дату и причину: перенос сам или карточка руководителю (SPEC 4.3.3). */
+async function handleReschedule(deps: Deps, chatId: string, taskId: string, text: string): Promise<string> {
+  const task = await authorizeAssignee(deps, chatId, taskId);
+  if (!task || !task.assignee) return "Не могу перенести срок: нет доступа к задаче.";
+  const parsed = await parseRescheduleText(deps.llm, task.leaderId, text, clock.now()).catch(() => null);
+  if (!parsed) {
+    await deps.state.set(reschedKey(chatId), taskId, EDIT_TTL);
+    return "Не поняла дату. Напишите, например: «до 15.12, жду данные от клиента». Отмена: /cancel";
+  }
+  const res = await requestReschedule(deps, task.leaderId, task.id, parsed.newDueAt, parsed.reason);
+  if (res.status === "rescheduled") return `Перенесла срок на ${esc(fmtShort(res.dueAt))}. Руководитель увидит это в сводке.`;
+  if (res.status === "awaiting_leader") {
+    await tellLeader(deps, task.leaderId, `${esc(task.assignee.name)} просит перенести срок по задаче «${esc(task.title)}». Карточка выше.`);
+    return `Срок не двигаю сама: ${esc(res.reason.toLowerCase())}. Передала руководителю, отвечу, как только он решит.`;
+  }
+  return `Не получилось: ${esc(res.reason)}.`;
+}
+
+/** Исполнитель сдал результат: сверка с критерием, возврат, закрытие или карточка «Принять» (SPEC 4.3.5). */
+async function handleSubmit(deps: Deps, chatId: string, taskId: string, text: string): Promise<string> {
+  const task = await authorizeAssignee(deps, chatId, taskId);
+  if (!task || !task.assignee) return "Не могу принять результат: нет доступа к задаче.";
+  const res = await submitResult(deps, task.leaderId, task.id, text);
+  switch (res.status) {
+    case "returned":
+      await deps.messenger.send(
+        chatId,
+        `Проверила результат по задаче «${esc(task.title)}». Нужно доработать:\n${res.shortcomings.map((s) => `• ${esc(s)}`).join("\n")}`,
+        [[{ text: "Сдать результат", data: `t:s:${task.id}` }]],
+      );
+      return "";
+    case "done":
+      return `Результат соответствует критерию, задача «${esc(task.title)}» закрыта. Спасибо!`;
+    case "awaiting_leader":
+      return "Результат соответствует критерию. Передала руководителю на приёмку, напишу, когда он решит.";
+    default:
+      return `Не получилось принять результат: ${esc(res.reason)}.`;
   }
 }
 
@@ -276,7 +330,20 @@ export async function handleText(deps: Deps, chatId: string, text: string, opts:
   if (text.trim() === "/cancel") {
     await deps.state.del(editKey(chatId));
     await deps.state.del(clarifyKey(chatId));
+    await deps.state.del(reschedKey(chatId));
+    await deps.state.del(submitKey(chatId));
     return "Отменила.";
+  }
+
+  const resched = await deps.state.get(reschedKey(chatId));
+  if (resched) {
+    await deps.state.del(reschedKey(chatId));
+    return handleReschedule(deps, chatId, resched, text);
+  }
+  const submit = await deps.state.get(submitKey(chatId));
+  if (submit) {
+    await deps.state.del(submitKey(chatId));
+    return handleSubmit(deps, chatId, submit, text);
   }
 
   // Ответ (reply) на сообщение с карточкой = правка этой карточки, кнопка «Поправить» не нужна.

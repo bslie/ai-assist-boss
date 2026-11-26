@@ -8,6 +8,7 @@ import { processRoutineJob } from "./morning";
 import { proposeLearning } from "../learning/propose";
 import type { LlmClient } from "../llm";
 import { dispatchTask, executeApprovedToolCall, type DispatchDeps } from "../tasks/dispatch";
+import { executeApprovedAccept, executeApprovedReschedule } from "../tasks/lifecycle";
 import { executeBusinessReply } from "./business";
 import { refreshDecisionCard, sendDecisionCard } from "./cards";
 import { esc } from "./types";
@@ -39,8 +40,12 @@ export async function relayEvent(deps: RelayDeps, leaderId: string, e: LeaderEve
     await refreshDecisionCard(deps.db, deps.messenger, leaderId, id);
     // Подтверждённое руководителем действие (например, отправка поручения) исполняется только здесь, после шлюза.
     const res = await executeApprovedToolCall(deps, leaderId, id);
+    const resched = await executeApprovedReschedule(deps, leaderId, id);
+    const accepted = await executeApprovedAccept(deps, leaderId, id);
     const parts = [`карточка ${id} обновлена`];
     if (res) parts.push(`действие: ${res.status}`);
+    if (resched) parts.push(`перенос срока: ${resched}`);
+    if (accepted) parts.push(`приёмка: ${accepted}`);
     // Ответ в личный чат от аккаунта руководителя (Telegram Business): тоже только после утверждения и шлюза.
     const reply = await executeBusinessReply(deps, leaderId, id);
     if (reply) {

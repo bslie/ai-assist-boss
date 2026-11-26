@@ -12,6 +12,7 @@ import { createProviderOrReplay } from "@/core/llm/providers";
 import { dbUsageSink } from "@/core/llm/usage-db";
 import { tick, type JobQueue, type RoutineJob } from "@/core/scheduler";
 import { processRoutineJob } from "@/core/telegram/morning";
+import { ensureDeadlineGuard } from "@/core/tasks/lifecycle";
 import { activeMailConnectors } from "@/core/mail/poll";
 import { pollWithPipeline } from "@/core/mail/pipeline";
 import { prepareAgenda } from "@/core/meetings/agenda";
@@ -72,7 +73,7 @@ async function main() {
   const worker = new Worker<RoutineJob>(
     QUEUE,
     async (job) => {
-      const res = await processRoutineJob({ db, messenger }, job.data);
+      const res = await processRoutineJob({ db, messenger, llm }, job.data);
       log(`рутина ${job.data.code}:`, JSON.stringify(res));
       return res;
     },
@@ -86,6 +87,10 @@ async function main() {
       .then((what) => what && log(`событие ${e.type}: ${what}`))
       .catch((err) => log(`событие ${e.type}: ошибка:`, (err as Error).message));
   });
+
+  // Рутина контроля сроков есть не в каждом профиле: доводим до нужного набора для всех руководителей.
+  const created = await ensureDeadlineGuard(db).catch(() => 0);
+  if (created > 0) log(`создана рутина контроля сроков: ${created}`);
 
   const runTick = async () => {
     try {
