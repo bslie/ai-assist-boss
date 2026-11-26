@@ -84,8 +84,9 @@ export function routeEmail(args: {
   }
 
   let action = DEFAULT_ROUTES[args.category];
-  const rule = args.rules?.find((r) => r.category === args.category);
-  // Правила не могут вернуть защищённое письмо в авто: сюда попадают только незащищённые категории.
+  // Деньги: правило может только оставить ASK_LEADER. Порог бюджета решает Policy Gate, не правило.
+  const rule = args.category === "MONEY" ? undefined : args.rules?.find((r) => r.category === args.category);
+  // Остальные защищённые категории отсечены выше, сюда попадают только незащищённые.
   if (rule) {
     action = rule.action;
     reasons.push("Применено правило");
