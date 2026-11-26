@@ -5,6 +5,7 @@
 import type { Decision, PrismaClient } from "@/generated/prisma/client";
 import { readyClock } from "./clock";
 import { humanizeReasons } from "./reasons";
+import { getCostReport } from "./usage";
 
 /** Часовой пояс руководителя. В схеме его нет; Россия без перехода на летнее время → фиксированный сдвиг. */
 const TZ = "Europe/Moscow";
@@ -85,6 +86,8 @@ export interface TodayData {
     avgProtocolMinutes: number | null;
     /** Число правил, выученных из правок (SPEC 7.4). */
     learnedRules: number;
+    /** Стоимость запросов из UsageLog (SPEC 7.4): всего и в среднем на платный вызов. */
+    cost: { totalRub: number; perRequestRub: number | null };
   };
 }
 
@@ -218,6 +221,7 @@ export async function getToday(db: PrismaClient, leaderId: string): Promise<Toda
     ...goals,
   ].slice(0, 4);
 
+  const costs = await getCostReport(db, leaderId);
   const learnedRules = await db.memory.count({ where: { leaderId, sourceType: "EDIT_LEARNING", isActive: true } });
   const savedMinutes = activity.reduce((s, a) => s + a.savedMinutes, 0);
   const closed = tasks.filter((t) => t.status !== "NEW");
@@ -243,6 +247,7 @@ export async function getToday(db: PrismaClient, leaderId: string): Promise<Toda
       firstTimeRightPct: closed.length ? Math.round((right / closed.length) * 100) : 0,
       avgProtocolMinutes: protoMin === null ? null : Math.round(protoMin),
       learnedRules,
+      cost: { totalRub: costs.totalRub, perRequestRub: costs.perRequestRub },
     },
   };
 }

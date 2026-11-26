@@ -10,6 +10,7 @@ import type { PrismaClient } from "@/generated/prisma/client";
 import { clock } from "../clock";
 import { decryptJson } from "../connectors/crypto";
 import { evaluate, getConnectorToolPermission, loadGateLeader, logVerdict } from "../policy-gate";
+import { recallCostRub, recordServiceUsage } from "../usage";
 
 const RECALL_TYPE = "BUILTIN_RECALL";
 const JOIN_LEAD_MS = 60_000; // SPEC 4.5.3: за 1 минуту до начала
@@ -105,6 +106,9 @@ export async function launchAvatarBot(db: PrismaClient, leaderId: string, meetin
     await db.activityLog.create({
       data: { createdAt: clock.now(), leaderId, pipeline: "MEETING", action: "AVATAR_BOT_LAUNCHED", reason: `ИИ-помощник отправлен на встречу «${meeting.title}»`, metadata: { meetingId, botId } },
     });
+    // Recall считает минуты бота: пишем плановую длительность встречи (SPEC инвариант 8).
+    const seconds = Math.max(0, (meeting.endAt.getTime() - meeting.startAt.getTime()) / 1000);
+    await recordServiceUsage(db, { leaderId, pipeline: "AVATAR_SESSION", provider: "recall.ai", model: "bot", audioSeconds: seconds, costRub: recallCostRub(seconds) }).catch(() => {});
     return { status: "launched", botId };
   } catch (e) {
     await db.meeting.update({ where: { id: meetingId }, data: { recallBotId: null } });
