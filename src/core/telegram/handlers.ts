@@ -9,6 +9,10 @@ import type { PrismaClient } from "@/generated/prisma/client";
 import { resolveDecision, type ResolveInput } from "../decisions";
 import { publishEvent } from "../events";
 import { acceptMemory, rejectMemory } from "../learning/propose";
+import { proposeRuleFromText, saveRuleProposal, type RuleProposal } from "../learning/rule-words";
+import { handleChat } from "../chat";
+import type { LlmClient } from "../llm";
+import { randomUUID } from "node:crypto";
 import { taskText } from "../tasks/dispatch";
 import { buildDecisionCards } from "../dashboard";
 import { cardButtons, cardText, refreshDecisionCard } from "./cards";
@@ -21,6 +25,8 @@ export interface Deps {
   state: StateStore;
   /** Воркер умеет анализировать правки (есть LLM): после правки обещаем сообщить о найденном правиле. */
   learns?: boolean;
+  /** Модель для правил словами и разговора руководителя в чате; без неё текст вне карточек не обрабатывается. */
+  llm?: LlmClient;
 }
 
 export interface CallbackInput {
@@ -64,6 +70,7 @@ export async function handleCallback(deps: Deps, input: CallbackInput): Promise<
   }
   if (kind === "t" && action && id) return handleTaskCallback(deps, input, action, id);
   if (kind === "m" && action && id) return handleMemoryCallback(deps, input, action, id);
+  if (kind === "u" && action && id) return handleRuleCallback(deps, input, action, id);
   if (kind !== "d" || !action || !id) return "Неизвестное действие";
 
   const d = await authorize(deps, input.chatId, id);
@@ -137,6 +144,66 @@ async function handleMemoryCallback(deps: Deps, input: CallbackInput, action: st
 }
 
 const clarifyKey = (chatId: string) => `tg:clarify:${chatId}`;
+const ruleKey = (id: string) => `tg:rule:${id}`;
+const RULE_TTL = 900;
+
+/** u:s|w|c:<id> — «Сохранить» / «Только на неделю» / «Отмена» на черновике правила (SPEC 4.4.2). */
+async function handleRuleCallback(deps: Deps, input: CallbackInput, action: string, id: string): Promise<string> {
+  const raw = await deps.state.get(ruleKey(id));
+  if (!raw) return "Предложение устарело: скажите правило ещё раз";
+  const stored = JSON.parse(raw) as { leaderId: string; proposal: RuleProposal };
+  const allowed = await leaderIdsForChat(deps.db, input.chatId);
+  if (!allowed.includes(stored.leaderId)) return "Нет доступа к этому правилу";
+  await deps.state.del(ruleKey(id)); // решение одно: повторное нажатие ничего не сохранит
+
+  if (action === "c") {
+    await deps.messenger.edit(input.chatId, input.messageId, "Хорошо, правило не сохраняю.").catch(() => {});
+    return "Отменено";
+  }
+  if (action !== "s" && action !== "w") return "Неизвестное действие";
+  const res = await saveRuleProposal(deps.db, stored.leaderId, { ...stored.proposal, weekOnly: false }, { weekOnly: action === "w" });
+  if (!res.ok) {
+    await deps.messenger.edit(input.chatId, input.messageId, `Не могу так сделать. ${esc(res.message)}`).catch(() => {});
+    return "Не сохранено";
+  }
+  await publishEvent(stored.leaderId, { type: "metrics.updated", data: {} });
+  await deps.messenger.edit(input.chatId, input.messageId, `Запомнила: ${esc(stored.proposal.summary)}${action === "w" ? " (на неделю)" : ""}`).catch(() => {});
+  return action === "w" ? "Запомнила на неделю" : "Запомнила";
+}
+
+/**
+ * Свободный текст руководителя: правило словами (с подтверждением кнопками) или обычный разговор.
+ * null — чат не руководителя или нет модели: пусть отвечает общий текст.
+ */
+async function leaderTalk(deps: Deps, chatId: string, text: string): Promise<string | null> {
+  if (!deps.llm) return null;
+  const binding =
+    (await deps.db.telegramBinding.findFirst({ where: { chatId, role: "LEADER", isActive: true } })) ??
+    (await deps.db.telegramBinding.findFirst({ where: { chatId, role: "LEADER" } }));
+  if (!binding) return null;
+  const body = text.trim();
+  if (!body || body.startsWith("/")) return null;
+
+  const proposed = await proposeRuleFromText(deps.db, deps.llm, binding.leaderId, body);
+  if (proposed.ok) {
+    const id = randomUUID().slice(0, 12);
+    await deps.state.set(ruleKey(id), JSON.stringify({ leaderId: binding.leaderId, proposal: proposed.proposal }), RULE_TTL);
+    await deps.messenger.send(chatId, `Я поняла так: <b>${esc(proposed.proposal.summary)}</b>
+Сохранить?`, [
+      [
+        { text: "Сохранить", data: `u:s:${id}` },
+        { text: "Только на неделю", data: `u:w:${id}` },
+      ],
+      [{ text: "Отмена", data: `u:c:${id}` }],
+    ]);
+    return "";
+  }
+  if (!proposed.notARule) return esc(proposed.message);
+
+  const reply = await handleChat(deps.db, deps.llm, binding.leaderId, body);
+  return [esc(reply.text), reply.draft ? `
+<i>${esc(reply.draft)}</i>` : ""].join("");
+}
 
 /** Поручение доступно только своему исполнителю: чат должен быть привязан именно к нему. */
 async function authorizeAssignee(deps: Deps, chatId: string, taskId: string) {
@@ -243,6 +310,8 @@ export async function handleText(deps: Deps, chatId: string, text: string, opts:
     if (!body) return "Текст пустой, правку не применила.";
     return afterEdit(deps, await resolveAndRefresh(deps, chatId, pending, d.leaderId, { action: "EDITED_APPROVED", editedText: body }), body);
   }
+  const talk = await leaderTalk(deps, chatId, text).catch(() => "Не смогла разобрать сообщение. Попробуйте ещё раз чуть позже.");
+  if (talk !== null) return talk;
   const bound = await deps.db.telegramBinding.count({ where: { chatId } });
   return bound === 0
     ? "Чтобы начать, откройте ссылку-приглашение, которую вам прислали."

@@ -3,7 +3,7 @@ import { CreateRuleSchema, PatchSchema, createRule, listRules, patchRules } from
 import { db } from "@/db/client";
 import { jsonError, parseBody, requireLeaderId } from "@/lib/http";
 
-const statusFor = (code: "NOT_FOUND" | "LOCKED") => (code === "NOT_FOUND" ? 404 : 403);
+const statusFor = (code: "NOT_FOUND" | "LOCKED" | "INVALID") => (code === "NOT_FOUND" ? 404 : code === "INVALID" ? 400 : 403);
 
 export async function GET(req: Request) {
   const auth = await requireLeaderId(req);
