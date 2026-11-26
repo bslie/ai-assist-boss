@@ -149,6 +149,29 @@
   .chat-in, .chat-panel, .chat-dot { animation: none; }
 }
 
+/* Главная: печатающийся заголовок и каскадное появление блоков. */
+@keyframes rise-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+@keyframes caret-blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+@keyframes tick-pop { from { transform: scale(0); } to { transform: scale(1); } }
+.rise { animation: rise-in 520ms cubic-bezier(0.2, 0.8, 0.2, 1) both; animation-delay: var(--d, 0ms); }
+.type-caret {
+  display: inline-block; width: 2px; height: 0.9em; margin-left: 2px; margin-right: -2px;
+  vertical-align: -0.08em; background: var(--amber); position: relative;
+}
+.type-caret-blink { animation: caret-blink 1s steps(1) infinite; }
+.pulse-dot { animation: tick-pop 360ms cubic-bezier(0.3, 1.6, 0.5, 1) both; animation-delay: var(--d, 0ms); }
+@media (prefers-reduced-motion: reduce) { .rise, .pulse-dot, .type-caret-blink { animation: none; } .type-caret { display: none; } }
+html[data-intro-done] .rise, html[data-intro-done] .pulse-dot { animation: none; }
+
+/* Переход между разделами: едва заметное появление. */
+@keyframes page-fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@keyframes slide-from-right { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: none; } }
+@keyframes slide-from-left { from { opacity: 0; transform: translateX(-28px); } to { opacity: 1; transform: none; } }
+.page-fade { animation: page-fade 200ms ease-out both; }
+.page-slide-right { animation: slide-from-right 320ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.page-slide-left { animation: slide-from-left 320ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+@media (prefers-reduced-motion: reduce) { .page-fade, .page-slide-right, .page-slide-left { animation: none; } }
+
 /* Страница: тонкая тёмная полоса вместо системной. */
 html { scrollbar-width: thin; scrollbar-color: #3d3931 transparent; }
 
@@ -158,3 +181,4 @@ html { scrollbar-width: thin; scrollbar-color: #3d3931 transparent; }
 dialog.drawer[open] { animation: drawer-in 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
 dialog.drawer[open]::backdrop { animation: fade-in 260ms ease-out both; }
 @media (prefers-reduced-motion: reduce) { dialog.drawer[open], dialog.drawer[open]::backdrop { animation: none; } }
+
