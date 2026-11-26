@@ -12,7 +12,11 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="ru" className={`${inter.variable} ${fraunces.variable} h-full antialiased`}>
+    <html lang="ru" suppressHydrationWarning className={`${inter.variable} ${fraunces.variable} h-full antialiased`}>
+      <head>
+        {/* Если вступительные анимации главной уже были в этой сессии вкладки, помечаем <html> до первой отрисовки. */}
+        <script dangerouslySetInnerHTML={{ __html: `try{if(sessionStorage.getItem("intro-seen"))document.documentElement.dataset.introDone="1"}catch(e){}` }} />
+      </head>
       <body className="min-h-full flex flex-col">{children}</body>
     </html>
   );
