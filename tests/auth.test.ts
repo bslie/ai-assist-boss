@@ -30,6 +30,13 @@ describe("password", () => {
     expect(await verifyPassword("anything", "bcrypt$10$xxx")).toBe(false);
   });
 
+  it("хэш с негодными параметрами scrypt — отказ, а не исключение", async () => {
+    const [, , r, p, salt, hash] = (await hashPassword("pw")).split("$");
+    expect(await verifyPassword("pw", ["scrypt", "abc", r, p, salt, hash].join("$"))).toBe(false);
+    expect(await verifyPassword("pw", ["scrypt", "3", r, p, salt, hash].join("$"))).toBe(false); // N не степень двойки
+    expect(await verifyPassword("pw", ["scrypt", "16384", r, p, salt, ""].join("$"))).toBe(false);
+  });
+
   it("одинаковый пароль даёт разные хэши (соль)", async () => {
     expect(await hashPassword("same-password")).not.toBe(await hashPassword("same-password"));
   });

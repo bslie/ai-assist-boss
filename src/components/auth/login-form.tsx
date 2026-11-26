@@ -34,7 +34,7 @@ export function LoginForm({ telegramBot, next }: Props) {
   const widgetRef = useRef<HTMLDivElement>(null);
 
   const done = () => {
-    router.replace(next.startsWith("/") && !next.startsWith("//") ? next : "/");
+    router.replace(/^\/(?![/\\])/.test(next) ? next : "/");
     router.refresh();
   };
 
