@@ -10,6 +10,7 @@ import type { LlmClient } from "../llm";
 import { dispatchTask, executeApprovedToolCall, type DispatchDeps } from "../tasks/dispatch";
 import { executeApprovedAccept, executeApprovedReschedule } from "../tasks/lifecycle";
 import { executeBusinessReply } from "./business";
+import { shouldNotifyNow } from "./antispam";
 import { refreshDecisionCard, sendDecisionCard } from "./cards";
 import { esc } from "./types";
 
@@ -33,6 +34,9 @@ export async function relayEvent(deps: RelayDeps, leaderId: string, e: LeaderEve
   if (!id) return null;
 
   if (e.type === "decision.created") {
+    // Тихие часы: карточка остаётся в вебе и уйдёт с утренним планом (SPEC 5.3).
+    const verdict = await shouldNotifyNow(deps.db, leaderId, id);
+    if (!verdict.now) return `карточка ${id} отложена до утреннего плана (${verdict.reason})`;
     return (await sendDecisionCard(deps.db, deps.messenger, leaderId, id)) ? `карточка ${id} отправлена` : null;
   }
 

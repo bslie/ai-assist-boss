@@ -137,7 +137,8 @@ async function runMorning({ db, messenger }: JobDeps, job: RoutineJob): Promise<
 
   const text = await buildMorningDigest(db, job.leaderId, { resurfaced: back.length });
   for (const chatId of unique) await messenger.send(chatId, text);
-  // Вернувшиеся карточки идут следом за планом, как новые.
-  for (const id of back) await sendDecisionCard(db, messenger, job.leaderId, id);
+  // Вернувшиеся и накопленные за тихие часы карточки идут следом за планом, как новые (отправка идемпотентна).
+  const queued = await db.decision.findMany({ where: { leaderId: job.leaderId, status: "PENDING", telegramMessageId: null }, orderBy: { createdAt: "asc" }, select: { id: true } });
+  for (const id of new Set([...back, ...queued.map((d) => d.id)])) await sendDecisionCard(db, messenger, job.leaderId, id);
   return { sent: unique.length };
 }
