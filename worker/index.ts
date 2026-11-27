@@ -13,6 +13,7 @@ import { dbUsageSink } from "@/core/llm/usage-db";
 import { tick, type JobQueue, type RoutineJob } from "@/core/scheduler";
 import { processRoutineJob } from "@/core/telegram/morning";
 import { ensureDeadlineGuard } from "@/core/tasks/lifecycle";
+import { activeCalendarConnectors, syncCalendar } from "@/core/calendar/sync";
 import { activeMailConnectors } from "@/core/mail/poll";
 import { pollWithPipeline } from "@/core/mail/pipeline";
 import { prepareAgenda } from "@/core/meetings/agenda";
@@ -28,6 +29,7 @@ import { createBot, createConsoleMessenger, createMessenger } from "./telegram";
 const QUEUE = "routines";
 const TICK_MS = 60_000;
 const MAIL_POLL_MS = Math.max(30, Number(process.env.MAIL_POLL_SECONDS ?? 120)) * 1000;
+const CALENDAR_SYNC_MS = Math.max(60, Number(process.env.CALENDAR_SYNC_SECONDS ?? 300)) * 1000;
 const log = (...a: unknown[]) => console.log(new Date().toISOString(), ...a);
 
 function redisConnection() {
@@ -128,6 +130,27 @@ async function main() {
   void runMailPoll();
   const mailTimer = setInterval(runMailPoll, MAIL_POLL_MS);
 
+  // Календарь: встречи из Google в таблицу Meeting. Реже почты: расписание меняется не каждую минуту.
+  let syncing = false;
+  const runCalendarSync = async () => {
+    if (syncing) return;
+    syncing = true;
+    try {
+      for (const c of await activeCalendarConnectors(db)) {
+        const res = await runActivity(c.leaderId, "Сверяю календарь", () => syncCalendar(db, c.leaderId, c.id));
+        if (res.ok) {
+          if (res.created + res.updated + res.removed > 0) log(`календарь ${c.id}: новых ${res.created}, изменено ${res.updated}, убрано ${res.removed}`);
+        } else if (!res.skipped) log(`календарь ${c.id}: ${res.message}`);
+      }
+    } catch (e) {
+      log("синхронизация календаря не удалась:", (e as Error).message);
+    } finally {
+      syncing = false;
+    }
+  };
+  void runCalendarSync();
+  const calendarTimer = setInterval(runCalendarSync, CALENDAR_SYNC_MS);
+
   // Встречи с аватаром (SPEC 5.2): раз в 2 минуты реального времени готовим вопросы и за минуту до начала отправляем бота.
   let launching = false;
   const runAvatarCheck = async () => {
@@ -182,6 +205,7 @@ async function main() {
     log("останавливаюсь…");
     clearInterval(timer);
     clearInterval(mailTimer);
+    clearInterval(calendarTimer);
     clearInterval(avatarTimer);
     clearInterval(transcriptTimer);
     await bot?.stop();

@@ -89,7 +89,8 @@ export async function seedLeader(db: PrismaClient, input: SeedLeaderInput): Prom
   await applyProfile(db, leaderId, input.draft, input.profileMarkdown);
 
   // Календарь и задачи пересоздаются целиком: сидер идемпотентен.
-  await db.meeting.deleteMany({ where: { leaderId, externalId: { not: null } } });
+  // Встречи из Google Календаря (gcal:…) не трогаем: их ведёт синхронизация.
+  await db.meeting.deleteMany({ where: { leaderId, externalId: { not: null }, NOT: { externalId: { startsWith: "gcal:" } } } });
   await db.meeting.createMany({
     data: input.meetings.map((e) => ({
       leaderId,

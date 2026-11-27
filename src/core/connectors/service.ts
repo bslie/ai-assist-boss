@@ -6,6 +6,7 @@
 import { z } from "zod";
 import type { Prisma, PrismaClient } from "@/generated/prisma/client";
 import { decryptJson, encryptJson, SecretsNotConfigured, secretsConfigured } from "./crypto";
+import { isCalendarType } from "../calendar/factory";
 import { isMailType, verifyMailCredentials } from "../mail/factory";
 import { probeMcp, type McpTool } from "./mcp";
 import { configuredOAuthApps } from "./oauth-app";
@@ -167,7 +168,7 @@ function itemFor(m: ConnectorManifest, row: Row | null, ready: Set<string>): Cat
     mcpUrl: row?.mcpUrl ?? null,
     account: stored?.account ?? values.email ?? null,
     lastSync: stored?.lastSync ?? null,
-    pollable: isMailType(m.id),
+    pollable: isMailType(m.id) || isCalendarType(m.id),
     tools: toolsFor(m, row, stored),
     multiple: Boolean(m.multiple),
   };

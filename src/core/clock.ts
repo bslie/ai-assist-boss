@@ -55,6 +55,12 @@ export class Clock {
     return new Date(real.getTime() + this.offsetMs);
   }
 
+  /** Обратное к `toDemo`: демо-момент встречи → реальное время для записи во внешний календарь. */
+  toReal(demo: Date): Date {
+    if (this.offsetMs === null) throw new Error("Clock is not initialized: call `await clock.init()` before `clock.toReal()`");
+    return new Date(demo.getTime() - this.offsetMs);
+  }
+
   /**
    * Загружает смещение из хранилища. При первом запуске считает его так,
    * чтобы «сейчас» = demoStart, и сохраняет (общее для всех процессов).

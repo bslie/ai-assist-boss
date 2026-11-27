@@ -112,7 +112,8 @@ describe.skipIf(!dbUp)("подключения (Postgres)", () => {
     const cat = await listCatalog(db, a);
     expect(cat.map((c) => c.moduleId)).toEqual(expect.arrayContaining(MODULES.map((m) => m.id)));
     expect(cat.find((c) => c.moduleId === "BUILTIN_TELEGRAM")?.state).toBe("connected");
-    expect(cat.find((c) => c.moduleId === "BUILTIN_GOOGLE_CALENDAR")?.state).toBe("soon");
+    expect(cat.find((c) => c.moduleId === "BUILTIN_GOOGLE_CALENDAR")?.state).not.toBe("soon");
+    expect(cat.find((c) => c.moduleId === "BUILTIN_GOOGLE_CALENDAR")?.pollable).toBe(true);
     expect(cat.find((c) => c.moduleId === "BUILTIN_GMAIL")?.pollable).toBe(true);
   });
 

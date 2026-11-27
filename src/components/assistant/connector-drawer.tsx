@@ -50,6 +50,7 @@ export function ConnectorDrawer({ item, leaderId, api, onClose, onChanged }: Pro
 
 function Body({ item, leaderId, api, onClose, onChanged }: Props & { item: CatalogItem }) {
   const connected = item.connectorId !== null;
+  const isCalendar = item.category === "Календарь";
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [values, setValues] = useState<Record<string, string>>(item.values);
@@ -122,19 +123,19 @@ function Body({ item, leaderId, api, onClose, onChanged }: Props & { item: Catal
 
         {connected && item.state === "connected" && item.pollable && (
           <section className="flex flex-col gap-2.5 rounded-2xl border border-line bg-ink p-4">
-            <div className="text-[15px]">Проверка почты</div>
+            <div className="text-[15px]">{isCalendar ? "Сверка календаря" : "Проверка почты"}</div>
             <div className={`text-[13px] ${item.lastSync?.error ? "text-coral" : "text-dim"}`}>
               {!item.lastSync
-                ? "Автоматически раз в пару минут. Пока ни разу не проверяла."
+                ? `Автоматически ${isCalendar ? "раз в несколько минут" : "раз в пару минут"}. Пока ни разу не проверяла.`
                 : item.lastSync.error
                   ? `Последняя проверка не удалась: ${item.lastSync.error}`
-                  : `Последняя проверка: ${new Date(item.lastSync.at).toLocaleString("ru-RU", { timeZone: "Europe/Moscow", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}, новых писем: ${item.lastSync.fetched}.`}
+                  : `Последняя проверка: ${new Date(item.lastSync.at).toLocaleString("ru-RU", { timeZone: "Europe/Moscow", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}, ${isCalendar ? "новых встреч" : "новых писем"}: ${item.lastSync.fetched}.`}
             </div>
             <Button
               variant="outline"
               className="h-11 self-start rounded-full px-5"
               disabled={busy}
-              onClick={() => run(() => api<{ fetched: number; decisions: number }>(`/api/connectors/${item.connectorId}/poll?${q}`, { method: "POST" }), "Проверила", async (d) => { say(true, d.fetched ? `Новых писем: ${d.fetched}, карточек: ${d.decisions}` : "Новых писем нет"); await onChanged(); })}
+              onClick={() => run(() => api<{ fetched: number; decisions: number }>(`/api/connectors/${item.connectorId}/poll?${q}`, { method: "POST" }), "Проверила", async (d) => { say(true, isCalendar ? (d.fetched ? `Новых встреч: ${d.fetched}` : "Новых встреч нет") : d.fetched ? `Новых писем: ${d.fetched}, карточек: ${d.decisions}` : "Новых писем нет"); await onChanged(); })}
             >
               {busy ? "Проверяю…" : "Проверить сейчас"}
             </Button>

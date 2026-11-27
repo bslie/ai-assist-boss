@@ -5,6 +5,7 @@
  * не создаётся сама (руководитель увидит причину в журнале).
  */
 import type { PrismaClient } from "@/generated/prisma/client";
+import { pushNewMeeting, type WriteResult } from "../calendar/write";
 import { clock } from "../clock";
 import { evaluate, loadGateLeader, logVerdict } from "../policy-gate";
 import { defaultParticipation } from "./participation";
@@ -18,6 +19,26 @@ const isWeekend = (d: Date) => {
   const w = new Intl.DateTimeFormat("en-US", { timeZone: TZ, weekday: "short" }).format(d);
   return w === "Sat" || w === "Sun";
 };
+
+/**
+ * Встреча серии появляется и в Google Календаре, если он подключён. Здесь нет `approvedByLeader`:
+ * право «Создавать встречи» должно быть AUTO, иначе приглашение не уходит, а причина попадает в журнал.
+ * Внешние участники и защищённые блоки шлюз без руководителя не пропускает в любом случае.
+ */
+async function pushToCalendar(db: PrismaClient, leaderId: string, meetingId: string, title: string): Promise<void> {
+  const res = await pushNewMeeting(db, leaderId, meetingId).catch((e): WriteResult => ({ status: "skipped", reason: (e as Error).message }));
+  if (res.status === "done" || (res.status === "skipped" && res.reason === "Google Календарь не подключён")) return;
+  await db.activityLog.create({
+    data: {
+      leaderId,
+      createdAt: clock.now(),
+      pipeline: "CALENDAR",
+      action: "NEXT_MEETING_NOT_PUSHED",
+      reason: `«${title}» создана только у меня, в Google Календарь не отправила: ${res.status === "approval" ? res.reasons.join("; ") : res.reason}`,
+      metadata: { meetingId },
+    },
+  });
+}
 
 export type NextMeetingResult = { status: "created"; meetingId: string; startAt: Date } | { status: "exists" } | { status: "skipped"; reason: string };
 
@@ -76,6 +97,7 @@ export async function scheduleNextMeeting(db: PrismaClient, leaderId: string, me
         metadata: { meetingId: next.id, previousMeetingId: m.id, startAt: startAt.toISOString() },
       },
     });
+    await pushToCalendar(db, leaderId, next.id, m.title);
     return { status: "created", meetingId: next.id, startAt };
   }
   await db.activityLog.create({
