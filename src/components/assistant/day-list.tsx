@@ -51,17 +51,18 @@ function JoinControl({ leaderId, join }: { leaderId: string; join: NonNullable<D
 }
 
 /** Транскрипт руками: путь для Телемоста, Dion и работы без Recall. Файл читается в браузере, на сервер уходит текст. */
-function TranscriptControl({ leaderId, meetingId }: { leaderId: string; meetingId: string }) {
+function TranscriptControl({ leaderId, meetingId, fromRecall }: { leaderId: string; meetingId: string; fromRecall: boolean }) {
   const router = useRouter();
   const [text, setText] = useState("");
   const [state, setState] = useState<{ busy: boolean; msg: string; ok: boolean }>({ busy: false, msg: "", ok: false });
-  async function send() {
+  /** `manual: false` — без текста: сервер сам забирает транскрипт у Recall по боту встречи. */
+  async function send(manual: boolean) {
     setState({ busy: true, msg: "", ok: false });
     try {
       const res = await fetch(`/api/meetings/${meetingId}/transcript?leaderId=${encodeURIComponent(leaderId)}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ transcript: text }),
+        body: JSON.stringify(manual ? { transcript: text } : {}),
       });
       const body = (await res.json().catch(() => ({}))) as { error?: string };
       if (res.ok) {
@@ -80,7 +81,12 @@ function TranscriptControl({ leaderId, meetingId }: { leaderId: string; meetingI
   }
   return (
     <div className="flex flex-col gap-1.5 pt-2">
-      <label className="text-dim" htmlFor={`tr-${meetingId}`}>Транскрипт</label>
+      {fromRecall && (
+        <button type="button" disabled={state.busy} onClick={() => send(false)} className="min-h-11 self-start rounded-full border border-line px-4 text-amber disabled:opacity-50">
+          {state.busy ? "Забираю у Recall…" : "Забрать транскрипт у Recall"}
+        </button>
+      )}
+      <label className="text-dim" htmlFor={`tr-${meetingId}`}>{fromRecall ? "Или вставьте текст сами" : "Транскрипт"}</label>
       <textarea
         id={`tr-${meetingId}`}
         value={text}
@@ -91,7 +97,7 @@ function TranscriptControl({ leaderId, meetingId }: { leaderId: string; meetingI
         className="rounded-xl border border-line bg-sunken px-3 py-2 text-[13px]"
       />
       <input type="file" accept=".txt,.vtt,.srt,text/plain" aria-label="Файл транскрипта" onChange={(e) => onFile(e.target.files?.[0])} className="text-[13px]" />
-      <button type="button" disabled={state.busy || text.trim().length < 20} onClick={send} className="min-h-11 self-start rounded-full border border-line px-4 text-amber disabled:opacity-50">
+      <button type="button" disabled={state.busy || text.trim().length < 20} onClick={() => send(true)} className="min-h-11 self-start rounded-full border border-line px-4 text-amber disabled:opacity-50">
         {state.busy ? "Собираю протокол…" : "Собрать протокол"}
       </button>
       {state.msg && <div className={state.ok ? "text-sage" : "text-coral"}>{state.msg}</div>}
@@ -132,7 +138,7 @@ export function DayList({ items, leaderId }: { items: DayItem[]; leaderId: strin
                     <div key={d} className="break-words">{d}</div>
                   ))}
                   {e.join && <JoinControl leaderId={leaderId} join={e.join} />}
-                  {e.transcript && <TranscriptControl leaderId={leaderId} meetingId={e.transcript.meetingId} />}
+                  {e.transcript && <TranscriptControl leaderId={leaderId} meetingId={e.transcript.meetingId} fromRecall={e.transcript.fromRecall} />}
                 </div>
               )}
             </li>
