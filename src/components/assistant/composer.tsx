@@ -6,7 +6,8 @@ import { ArrowUp, ChevronDown, Mic, X } from "lucide-react";
 import type { ChatReply } from "@/core/chat";
 import { cn } from "@/lib/utils";
 
-const SUGGESTIONS = ["Что на сегодня?", "Что ты умеешь?", "Какие встречи можно пропустить?", "Ответь Павловой, что в четверг", "Как подключить тебя ко встречам?"];
+/** Пока подсказки генерируются или сервер не ответил, показываем нейтральный набор. */
+const PLACEHOLDER_SUGGESTIONS = ["Что на сегодня?", "Что ты умеешь?"];
 
 interface Msg {
   from: "me" | "bot";
@@ -50,6 +51,19 @@ export function Composer({ leaderId, children }: { leaderId: string; /** Под 
   }, []);
 
   const q = `?leaderId=${encodeURIComponent(leaderId)}`;
+
+  // Подсказки составляет модель по контексту руководителя; после действия в чате они обновляются.
+  const [suggestions, setSuggestions] = useState<string[] | null>(null);
+  const refreshSuggestions = useRef(() => {});
+  refreshSuggestions.current = () => {
+    fetch(`/api/chat/suggestions${q}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: { suggestions?: string[] } | null) => setSuggestions(j?.suggestions?.length ? j.suggestions : PLACEHOLDER_SUGGESTIONS))
+      .catch(() => setSuggestions(PLACEHOLDER_SUGGESTIONS));
+  };
+  useEffect(() => {
+    refreshSuggestions.current();
+  }, [leaderId]);
 
   async function send(raw: string) {
     const t = raw.trim();
@@ -115,7 +129,10 @@ export function Composer({ leaderId, children }: { leaderId: string; /** Под 
             <button
               type="button"
               aria-label="Закрыть чат"
-              onClick={() => setMsgs([])}
+              onClick={() => {
+                setMsgs([]);
+                refreshSuggestions.current();
+              }}
               className="flex size-9 items-center justify-center rounded-full text-dim transition-colors hover:bg-raised hover:text-foreground"
             >
               <X size={18} />
@@ -173,8 +190,10 @@ export function Composer({ leaderId, children }: { leaderId: string; /** Под 
       )}
       {/* Подсказки видны только когда переписки нет (чат закрыт крестиком); в свёрнутом чате они скрыты. */}
       {msgs.length === 0 && (
-      <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 sm:mx-0 sm:flex-wrap sm:px-0">
-        {SUGGESTIONS.map((s) => (
+      <div className="no-scrollbar -mx-4 -my-1 flex gap-2 overflow-x-auto px-4 py-1 sm:mx-0 sm:h-[52px] sm:flex-wrap sm:overflow-hidden sm:px-0">
+        {suggestions === null &&
+          [88, 120, 150].map((w) => <span key={w} aria-hidden="true" style={{ width: w }} className="h-11 shrink-0 animate-pulse rounded-full border border-line-strong bg-sunken/60" />)}
+        {(suggestions ?? []).map((s) => (
           <button
             key={s}
             type="button"
