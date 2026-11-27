@@ -53,6 +53,38 @@ function saveChat(key: string, v: { msgs: Msg[]; open: boolean }) {
   }
 }
 
+const StreamEventSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("progress"), text: z.string() }),
+  z.object({ type: z.literal("reply"), reply: z.object({ text: z.string(), draft: z.string().optional(), actions: z.array(z.record(z.string(), z.unknown())).optional() }) }),
+  z.object({ type: z.literal("error"), error: z.string() }),
+]);
+type StreamEvent = z.infer<typeof StreamEventSchema>;
+
+/** Читает поток ответа чата (по JSON-строке на событие), прогресс отдаёт сразу, возвращает итог. */
+async function readChatStream(body: ReadableStream<Uint8Array>, onProgress: (text: string) => void): Promise<Exclude<StreamEvent, { type: "progress" }>> {
+  const reader = body.getReader();
+  const dec = new TextDecoder();
+  let buf = "";
+  let final: Exclude<StreamEvent, { type: "progress" }> | null = null;
+  const take = (line: string) => {
+    if (!line.trim()) return;
+    const ev = StreamEventSchema.safeParse(JSON.parse(line));
+    if (!ev.success) return;
+    if (ev.data.type === "progress") onProgress(ev.data.text);
+    else final = ev.data;
+  };
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    const lines = buf.split("\n");
+    buf = lines.pop() ?? "";
+    lines.forEach(take);
+  }
+  take(buf);
+  return final ?? { type: "error", error: "Ответ оборвался. Попробуйте ещё раз." };
+}
+
 function Avatar() {
   return (
     <svg width="26" height="26" viewBox="0 0 32 32" fill="none" aria-hidden="true" className="mt-0.5 shrink-0">
@@ -67,6 +99,8 @@ export function Composer({ leaderId, children }: { leaderId: string; /** Под 
   const [text, setText] = useState("");
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [busy, setBusy] = useState(false);
+  /** Что агент делает прямо сейчас, когда ему нужно ещё одно обращение к модели. */
+  const [progress, setProgress] = useState<string | null>(null);
   const [open, setOpen] = useState(true);
   const end = useRef<HTMLDivElement>(null);
   const root = useRef<HTMLDivElement>(null);
@@ -130,19 +164,26 @@ export function Composer({ leaderId, children }: { leaderId: string; /** Под 
     setOpen(true);
     setMsgs((m) => [...m, { from: "me", text: t }]);
     setBusy(true);
+    setProgress(null);
     try {
-      const res = await fetch(`/api/chat${q}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: t, history }) });
-      const j = (await res.json().catch(() => ({}))) as Partial<ChatReply> & { error?: string };
-      setMsgs((m) => [
-        ...m,
-        res.ok && j.text
-          ? { from: "bot", text: j.text, draft: j.draft, actions: j.actions }
-          : { from: "bot", text: j.error ?? `Ошибка ${res.status}` },
-      ]);
+      // Поток: пока агенту нужно ещё одно обращение к модели, приходят строки progress, в конце — reply.
+      const res = await fetch(`/api/chat${q}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/x-ndjson" },
+        body: JSON.stringify({ text: t, history }),
+      });
+      if (!res.ok || !res.body) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        setMsgs((m) => [...m, { from: "bot", text: j.error ?? `Ошибка ${res.status}` }]);
+        return;
+      }
+      const final = await readChatStream(res.body, (p) => setProgress(p));
+      setMsgs((m) => [...m, final.type === "reply" && final.reply.text ? { from: "bot", text: final.reply.text, draft: final.reply.draft, actions: final.reply.actions as ChatReply["actions"] } : { from: "bot", text: final.type === "error" ? final.error : "Не получила ответа. Попробуйте ещё раз." }]);
     } catch {
       setMsgs((m) => [...m, { from: "bot", text: "Не получилось связаться с сервером. Попробуйте ещё раз." }]);
     } finally {
       setBusy(false);
+      setProgress(null);
     }
   }
 
@@ -229,12 +270,16 @@ export function Composer({ leaderId, children }: { leaderId: string; /** Под 
                   ),
                 )}
                 {busy && (
-                  <div className="chat-in flex items-center gap-2.5" aria-label="Помощник печатает">
+                  <div className="chat-in flex items-center gap-2.5" role="status" aria-label={progress ?? "Помощник печатает"}>
                     <Avatar />
-                    <div className="flex gap-1 rounded-full bg-raised px-3.5 py-3">
-                      {[0, 1, 2].map((d) => (
-                        <span key={d} className="chat-dot size-1.5 rounded-full bg-soft" style={{ animationDelay: `${d * 150}ms` }} />
-                      ))}
+                    <div className="flex items-center gap-2.5 rounded-full bg-raised px-3.5 py-3">
+                      <span className="flex gap-1">
+                        {[0, 1, 2].map((d) => (
+                          <span key={d} className="chat-dot size-1.5 rounded-full bg-soft" style={{ animationDelay: `${d * 150}ms` }} />
+                        ))}
+                      </span>
+                      {/* Агент сам говорит, что делает и что нужно ещё одно обращение: показываем его слова. */}
+                      {progress && <span key={progress} className="chat-in text-[13px] text-soft">{progress}</span>}
                     </div>
                   </div>
                 )}

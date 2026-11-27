@@ -16,7 +16,7 @@ const ToolCallSchema = z.object({
 });
 
 export const StepSchema = z.object({
-  /** Ответ руководителю. Пустой, если вызван инструмент или предложено действие: итог действия сообщит система. */
+  /** Ответ руководителю. Пустой, если предложено действие (итог сообщит система). При вызове инструмента — одна короткая фраза о том, что делаешь. */
   answer: z.string().max(1500),
   /** Инструмент чтения, результат которого нужен для ответа. null — данных достаточно. */
   call: ToolCallSchema.nullish(),
@@ -32,6 +32,11 @@ export interface AgentArgs {
   dialog: string;
   tools: Tool[];
   maxSteps?: number;
+  /**
+   * Агенту нужно ещё одно обращение к модели после инструмента чтения: сообщаем об этом сразу, не дожидаясь ответа.
+   * `note` — фраза самой модели («Смотрю письма от Павловой»), может быть пустой.
+   */
+  onStep?: (s: { tool: string; note: string }) => void;
 }
 
 export interface AgentOutcome {
@@ -97,6 +102,7 @@ export async function runAgent(llm: LlmClient, a: AgentArgs): Promise<AgentOutco
     });
     if (!res.call || last) return { answer: res.answer, actions: res.actions, calls };
 
+    a.onStep?.({ tool: res.call.tool, note: res.answer.trim() });
     observations.push(await observe(res.call, byName, a.ctx, seen, calls));
   }
   return { answer: "", actions: [], calls };

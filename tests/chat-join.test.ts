@@ -39,16 +39,16 @@ describe.skipIf(!dbUp)("чат: зайти на встречу по ссылке
     expect(r.text).toContain("транскрипт");
   });
 
-  it("без ближайших встреч предлагает разовую; с одной — привязывает к ней; с двумя — спрашивает", async () => {
+  it("встреча по ссылке: сразу пытается зайти; несколько подходящих — спрашивает; Recall не подключён — отказ текстом", async () => {
     const f = scriptedLlm([{ actions: [{ tool: "meeting.join", args: { url: ZOOM } }] }]);
     const none = await handleChat(db, f.llm, leaderId, `Подключись к встрече ${ZOOM}`);
-    const a0 = none.actions?.[0];
-    expect(a0 && "post" in a0 ? a0.post.body : null).toEqual({ url: ZOOM });
+    expect(none.actions).toBeUndefined(); // кнопки нет
+    expect(none.text).toMatch(/Не получилось/); // Recall в тесте не подключён: бот не запущен, причина названа
+    expect(await db.meeting.count({ where: { leaderId } })).toBe(0); // разовая встреча не осталась
 
-    const m1 = await mk("Планёрка А", 10);
+    await mk("Планёрка А", 10);
     const one = await handleChat(db, f.llm, leaderId, `зайди на встречу ${ZOOM}`);
-    const a1 = one.actions?.[0];
-    expect(a1 && "post" in a1 ? a1.post.body : null).toEqual({ url: ZOOM, meetingId: m1.id });
+    expect(one.text).toMatch(/Не получилось/);
 
     await mk("Планёрка Б", 20);
     const two = await handleChat(db, f.llm, leaderId, `зайди на встречу ${ZOOM}`);

@@ -2,6 +2,7 @@ import "dotenv/config";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { LlmClient, MemoryCache, type LlmProvider } from "@/core/llm";
 import { seedTempLeader } from "./helpers/eval-env";
+import { scriptedLlm } from "./helpers/scripted-llm";
 
 vi.stubEnv("APP_CLOCK_MODE", "real");
 const { db } = await import("@/db/client");
@@ -133,26 +134,55 @@ describe.skipIf(!dbUp)("чат (Postgres)", () => {
     expect(u.calls[0].system).toContain("MORNING_DIGEST");
   });
 
-  it("режим обучения из чата: только предложение с кнопкой, защищённое не отпускается", async () => {
+  it("режим обучения из чата применяется сразу, защищённое не отпускается", async () => {
     const off = await handleChat(db, llmWith({ actions: [act("LEARNING", { learning: { mode: "OFF", scope: null, trusted: null } })] }).llm, leaderId, "выключи режим обучения");
+    expect(off.text).toContain("Режим обучения выключен");
     expect(off.text).toContain("Было:");
-    expect(off.actions?.[0]).toMatchObject({ patch: { path: "/api/learning", body: { kind: "mode", enabled: false } } });
-    expect((await db.leader.findUniqueOrThrow({ where: { id: leaderId } })).learningMode).toBe(true); // без нажатия ничего не изменилось
+    expect(off.actions).toBeUndefined(); // кнопки нет: уже применено
+    expect((await db.leader.findUniqueOrThrow({ where: { id: leaderId } })).learningMode).toBe(false);
 
     const trust = await handleChat(db, llmWith({ actions: [act("LEARNING", { learning: { mode: null, scope: "TASK_ASSIGN", trusted: true } })] }).llm, leaderId, "поручения отправляй без меня");
-    expect(trust.actions?.[0]).toMatchObject({ patch: { body: { kind: "trust", scope: "TASK_ASSIGN", trusted: true } } });
+    expect(trust.actions).toBeUndefined();
+    expect((await db.leader.findUniqueOrThrow({ where: { id: leaderId } })).trustedScopes).toContain("TASK_ASSIGN");
 
     const hr = await handleChat(db, llmWith({ actions: [act("LEARNING", { learning: { mode: null, scope: "HR", trusted: true } })] }).llm, leaderId, "кадры решай сама");
     expect(hr.actions).toBeUndefined();
     expect(hr.text).toContain("всегда согласую");
+    expect((await db.leader.findUniqueOrThrow({ where: { id: leaderId } })).trustedScopes).not.toContain("HR");
+    expect(await db.activityLog.count({ where: { leaderId, action: "CHAT_APPLIED" } })).toBeGreaterThanOrEqual(2); // каждое применённое — в журнале
   });
 
-  it("рутина из чата: было/станет и PATCH только по кнопке", async () => {
+  it("рутина из чата применяется сразу; неизвестная рутина — отказ без изменений", async () => {
     const r = await handleChat(db, llmWith({ actions: [act("ROUTINE", { routine: { code: "MORNING_DIGEST", time: "9:00", active: null } })] }).llm, leaderId, "утренний план присылай в 9");
     expect(r.text).toMatch(/Было: .*\nСтанет: .*09:00/);
-    const a = r.actions?.[0];
-    expect(a && "patch" in a ? a.patch.body : null).toMatchObject({ cronExpression: expect.stringMatching(/^0 9 /) });
+    expect(r.actions).toBeUndefined();
+    expect((await db.routine.findFirstOrThrow({ where: { leaderId, code: "MORNING_DIGEST" } })).cronExpression).toMatch(/^0 9 /);
     const bad = await handleChat(db, llmWith({ actions: [act("ROUTINE", { routine: { code: "NOPE", time: "9:00", active: null } })] }).llm, leaderId, "x");
     expect(bad.text).toContain("Не нашла такую рутину");
+  });
+
+  it("стиль и правило применяются сразу, а ответ на письмо остаётся кнопкой", async () => {
+    const style = await handleChat(db, llmWith({ actions: [act("STYLE", { style: "Пиши в формате: суть, затем срок." })] }).llm, leaderId, "поменяй формат черновиков");
+    expect(style.actions).toBeUndefined();
+    expect(await db.memory.count({ where: { leaderId, ruleText: "Пиши в формате: суть, затем срок.", isActive: true } })).toBe(1);
+  });
+
+  it("агент сообщает, что делает ещё одно обращение к модели, и применяет изменение с отдельным шагом прогресса", async () => {
+    const f = scriptedLlm([
+      { answer: "Смотрю правила, секунду.", call: { tool: "rules.list" } },
+      { actions: [{ tool: "routine.change", args: { code: "MORNING_DIGEST", time: "10:30", active: null } }] },
+    ]);
+    const steps: string[] = [];
+    const r = await handleChat(db, f.llm, leaderId, "посмотри правила и утренний план присылай в 10:30", [], (p) => steps.push(p.text));
+    expect(steps).toEqual(["Смотрю правила, секунду.", "Применяю изменение"]);
+    expect(f.agentCalls()).toBe(2);
+    expect(r.text).toContain("Станет:");
+    expect((await db.routine.findFirstOrThrow({ where: { leaderId, code: "MORNING_DIGEST" } })).cronExpression).toMatch(/^30 10 /);
+
+    // Без фразы модели показываем стандартную подпись инструмента.
+    const g = scriptedLlm([{ call: { tool: "meetings.list" } }, { answer: "Встреч нет." }]);
+    const s2: string[] = [];
+    await handleChat(db, g.llm, leaderId, "какие у меня встречи через неделю", [], (p) => s2.push(p.text));
+    expect(s2).toEqual(["Смотрю встречи"]);
   });
 });
