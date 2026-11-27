@@ -31,6 +31,7 @@ export const SCOPE_LABEL: Record<TrustScope, string> = {
   CLIENT_SUPPORT: "Типовые обращения клиентов",
   NEWSLETTER: "Рассылки",
   CALENDAR: "Согласования встреч",
+  SYSTEM_NOTICE: "Служебные уведомления",
   TASK_ASSIGN: "Поручения сотрудникам",
 };
 

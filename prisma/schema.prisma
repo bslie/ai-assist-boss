@@ -26,6 +26,7 @@ enum EmailCategory {
   CLIENT_SUPPORT // клиенты (типовые обращения, жалобы)
   NEWSLETTER // рассылки
   CALENDAR // календарь
+  SYSTEM_NOTICE // автоматические уведомления сервисов: не показываются, письмо остаётся непрочитанным
 }
 
 enum EmailAction {
@@ -238,6 +239,8 @@ model EmailItem {
   decisionId     String? // повторы ссылаются на ту же карточку
   taskId         String?
   isReadByLeader Boolean        @default(false)
+  connectorId    String? // ящик, из которого пришло письмо: по нему письмо помечается прочитанным
+  readMarkedAt   DateTime? // когда письмо помечено прочитанным в ящике (null — не помечено)
   createdAt      DateTime       @default(now())
 
   @@unique([leaderId, externalId])

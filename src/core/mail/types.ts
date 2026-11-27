@@ -27,6 +27,8 @@ export interface MailConnector {
   listNew(cursor: string | null, limit: number): Promise<MailFetch>;
   send(reply: OutgoingReply): Promise<void>;
   archive(externalId: string): Promise<void>;
+  /** Пометить письмо прочитанным. Нет метода — реализация это не умеет. Вызывается только через Policy Gate. */
+  markRead?(externalId: string): Promise<void>;
 }
 
 /** Сколько назад смотрим при первом опросе, чтобы не затопить руководителя старой перепиской. */

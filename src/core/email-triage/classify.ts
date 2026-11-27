@@ -16,7 +16,7 @@ import {
 
 export const EMAIL_CATEGORIES = [
   "HR", "MANAGEMENT", "MONEY", "CLIENT_COMMITMENT", "INVITATION", "REPORT",
-  "STATUS", "SALES", "ACCESS", "CLIENT_SUPPORT", "NEWSLETTER", "CALENDAR",
+  "STATUS", "SALES", "ACCESS", "CLIENT_SUPPORT", "NEWSLETTER", "CALENDAR", "SYSTEM_NOTICE",
 ] as const;
 export type EmailCategory = (typeof EMAIL_CATEGORIES)[number];
 
@@ -48,7 +48,16 @@ export const DEFAULT_ROUTES: Readonly<Record<EmailCategory, EmailAction>> = {
   CLIENT_SUPPORT: "DELEGATE",
   NEWSLETTER: "IGNORE",
   CALENDAR: "AUTO",
+  /** Служебное: руководителю не показываем, письмо остаётся непрочитанным в ящике. */
+  SYSTEM_NOTICE: "IGNORE",
 };
+
+/**
+ * В автоматических письмах сервисов часто встречаются «срок действия», «приглашение», «запуск»: это не просьбы людей.
+ * Для уверенного SYSTEM_NOTICE эти два текстовых сигнала не отправляют письмо руководителю. Сигналы про людей
+ * из оргструктуры (руководство, кадры, финансы) и про согласование денег остаются жёсткими.
+ */
+const SYSTEM_NOTICE_TOLERATED: ReadonlySet<RiskSignal> = new Set<RiskSignal>(["COMMITMENT_TERMS", "EXTERNAL_INVITATION"]);
 
 /** Правило профиля/пользователя: может менять действие, но не ослаблять защиту. */
 export interface CategoryRule {
@@ -85,9 +94,11 @@ export function routeEmail(args: {
   senderEmail?: string;
 }): RouteDecision {
   const reasons: string[] = [];
+  const signals =
+    args.category === "SYSTEM_NOTICE" && args.confidence >= CONFIDENCE_THRESHOLD ? args.signals.filter((s) => !SYSTEM_NOTICE_TOLERATED.has(s)) : args.signals;
 
-  if (hasHardSignal(args.signals)) {
-    reasons.push(`Жёсткие сигналы: ${args.signals.join(", ")}`);
+  if (hasHardSignal(signals)) {
+    reasons.push(`Жёсткие сигналы: ${signals.join(", ")}`);
     return { action: "ASK_LEADER", reasons };
   }
   if (args.category === null) {
@@ -124,6 +135,8 @@ export const CATEGORY_HELP: Record<EmailCategory, string> = {
   CLIENT_SUPPORT: "типовые обращения и жалобы клиентов",
   NEWSLETTER: "рассылки, новости вендоров, вебинары",
   CALENDAR: "подтверждение, перенос или согласование времени внутренней встречи коллегами",
+  SYSTEM_NOTICE:
+    "автоматические письма сервисов и систем без живого автора: безопасность аккаунта и входы, блокировки и квоты серверов, квитанции и счета-уведомления, автоматические приглашения и напоминания календарей. Письмо живого человека — никогда SYSTEM_NOTICE",
 };
 
 const SYSTEM = [

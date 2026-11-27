@@ -167,6 +167,10 @@ export class GmailMailConnector implements MailConnector {
     await this.g("/messages/send", { method: "POST", body: JSON.stringify({ raw: raw.toString("base64url"), ...(threadId ? { threadId } : {}) }) });
   }
 
+  async markRead(externalId: string): Promise<void> {
+    await this.g(`/messages/${encodeURIComponent(externalId)}/modify`, { method: "POST", body: JSON.stringify({ removeLabelIds: ["UNREAD"] }) });
+  }
+
   async archive(externalId: string): Promise<void> {
     await this.g(`/messages/${encodeURIComponent(externalId)}/modify`, { method: "POST", body: JSON.stringify({ removeLabelIds: ["INBOX"] }) });
   }

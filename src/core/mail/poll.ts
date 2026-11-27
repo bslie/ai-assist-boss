@@ -12,6 +12,7 @@ import type { LlmClient } from "../llm";
 import { evaluate, getConnectorToolPermission, loadGateLeader, logVerdict } from "../policy-gate";
 import { clock } from "../clock";
 import { createMailConnector, isMailType, MAIL_TYPES } from "./factory";
+import { markHandledEmails } from "./mark-read";
 import type { MailConnector } from "./types";
 
 const BATCH = 30;
@@ -64,6 +65,9 @@ export async function pollConnector(db: PrismaClient, leaderId: string, connecto
     const stats = await ingestEmails(db, deps.llm, leaderId, emails, { connectorId, draft: deps.draft, criteria: deps.criteria, emit: deps.emit });
     const archived = await archiveNewsletters(db, leaderId, connectorId, mail, emails.map((e) => e.externalId).filter((x): x is string => Boolean(x)));
 
+    // Обработанные письма становятся прочитанными в ящике; проигнорированные (служебные, рассылки) остаются как есть.
+    await markHandledEmails(db, leaderId).catch(() => undefined);
+
     await patchStored(db, row, { cursor, lastSync: { at: clock.now().toISOString(), fetched: emails.length } });
     return { ok: true, fetched: emails.length, stats, archived };
   } catch (e) {
@@ -81,7 +85,7 @@ async function archiveNewsletters(db: PrismaClient, leaderId: string, connectorI
   if (externalIds.length === 0) return 0;
   const perm = await getConnectorToolPermission(db, leaderId, connectorId, "mail.archive");
   if (perm !== "AUTO") return 0; // по умолчанию письмо остаётся во входящих, помощник лишь не показывает его
-  const items = await db.emailItem.findMany({ where: { leaderId, externalId: { in: externalIds }, action: "IGNORE" } });
+  const items = await db.emailItem.findMany({ where: { leaderId, externalId: { in: externalIds }, action: "IGNORE", NOT: { category: "SYSTEM_NOTICE" } } });
   const leader = await loadGateLeader(db, leaderId);
   let n = 0;
   for (const it of items) {

@@ -115,6 +115,26 @@ export class ImapMailConnector implements MailConnector {
     }
   }
 
+  async markRead(externalId: string): Promise<void> {
+    const uid = Number(externalId.split(":")[2]);
+    if (!Number.isInteger(uid)) throw new Error("Неизвестный формат письма");
+    const c = this.client();
+    c.on("error", () => undefined);
+    try {
+      await c.connect();
+      const lock = await c.getMailboxLock("INBOX");
+      try {
+        await c.messageFlagsAdd(String(uid), ["\Seen"], { uid: true });
+      } finally {
+        lock.release();
+      }
+    } catch (e) {
+      throw friendly(e);
+    } finally {
+      await c.logout().catch(() => undefined);
+    }
+  }
+
   async archive(externalId: string): Promise<void> {
     const uid = Number(externalId.split(":")[2]);
     if (!Number.isInteger(uid)) throw new Error("Неизвестный формат письма");

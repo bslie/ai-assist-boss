@@ -129,6 +129,7 @@ export async function ingestEmails(
     const base = {
       leaderId,
       externalId: email.externalId ?? null,
+      connectorId: opts.connectorId ?? null,
       threadKey: key,
       occurrence,
       senderName: email.senderName,
@@ -273,7 +274,9 @@ export async function ingestEmails(
 
     const delegatedWithoutAssignee = decision.action === "DELEGATE" && !taskId;
     // Деньги под порогом считаем отдельно от подтверждённых встреч: иначе «Подтвердила N встреч» врёт.
-    const logAction = budget ? "AUTO_BUDGET" : decision.action;
+    // Служебные уведомления не считаем «рассылками в архив»: письмо остаётся во входящих непрочитанным.
+    const serviceNotice = c.category === "SYSTEM_NOTICE" && decision.action === "IGNORE";
+    const logAction = budget ? "AUTO_BUDGET" : serviceNotice ? "SERVICE_NOTICE" : decision.action;
     await db.activityLog.create({
       data: {
           createdAt: clock.now(),

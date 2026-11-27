@@ -28,8 +28,8 @@ describe("реестр модулей", () => {
     }
   });
 
-  it("запись во внешние сервисы по умолчанию не AUTO, кроме сообщений самому руководителю", () => {
-    for (const m of MODULES) for (const t of m.tools) if (t.kind === "write" && t.name !== "telegram.send_digest") expect(t.default, t.name).not.toBe("AUTO");
+  it("запись во внешние сервисы по умолчанию не AUTO, кроме сообщений самому руководителю и пометки «прочитано» (ничего не отправляет и не удаляет)", () => {
+    for (const m of MODULES) for (const t of m.tools) if (t.kind === "write" && t.name !== "telegram.send_digest" && t.name !== "mail.mark_read") expect(t.default, t.name).not.toBe("AUTO");
   });
 });
 

@@ -9,6 +9,7 @@ import { z } from "zod";
 import type { PrismaClient } from "@/generated/prisma/client";
 import { readyClock } from "./clock";
 import { publishEvent } from "./events";
+import { markHandledEmails } from "./mail/mark-read";
 import { executeApprovedReply } from "./mail/send";
 import { executeApprovedProtocol } from "./meetings/approve";
 
@@ -93,6 +94,9 @@ export async function resolveDecision(
       await executeApprovedProtocol(db, leaderId, decisionId, { recipients: input.protocolRecipients ?? "ALL" }).catch(() => null);
     }
   }
+
+  // Письмо, по которому руководитель принял решение, в ящике становится прочитанным. «Не сейчас» его не трогает.
+  if (input.action !== "SNOOZE") await markHandledEmails(db, leaderId).catch(() => null);
 
   await publishEvent(leaderId, { type: "decision.updated", data: { id: decisionId, status } });
   await publishEvent(leaderId, { type: "metrics.updated", data: {} });

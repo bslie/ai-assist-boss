@@ -121,6 +121,10 @@ export class GraphMailConnector implements MailConnector {
     });
   }
 
+  async markRead(externalId: string): Promise<void> {
+    await this.g(`/me/messages/${encodeURIComponent(externalId)}`, { method: "PATCH", body: JSON.stringify({ isRead: true }) });
+  }
+
   async archive(externalId: string): Promise<void> {
     await this.g(`/me/messages/${encodeURIComponent(externalId)}/move`, { method: "POST", body: JSON.stringify({ destinationId: "archive" }) });
   }

@@ -259,5 +259,158 @@
     ],
     "stylePrompt": "Пиши коротко, по делу, с конкретным следующим шагом и сроком. Бери манеру речи из открытых материалов руководителя: посты и видео канала «Сделано круто».",
     "budgetAutoLimit": null
+  },
+  "530c0fc44af9b2e24af8a00d78a622303bd1ca90dbf7d1e723ca83c8f486b093": {
+    "category": "CLIENT_COMMITMENT",
+    "confidence": 0.95,
+    "amount": null,
+    "client": "client1@romashka.example",
+    "deadline": "25 декабря",
+    "isUrgent": false,
+    "summary": "Клиент просит подтвердить запуск интеграции до 25 декабря для отчётности."
+  },
+  "8dc40145d4533275dc21b7e7253810b72356ca262df485d363d26fabd038ae8b": {
+    "category": "SALES",
+    "confidence": 0.97,
+    "amount": null,
+    "client": "client2@tehnostroy.example",
+    "deadline": null,
+    "isUrgent": false,
+    "summary": "Клиент запрашивает коммерческое предложение на 50 лицензий и внедрение при согласованном бюджете."
+  },
+  "491c5583947d55896d0db4ef588cf8dc2817796804dd1fd0cb19274c731e9f7d": {
+    "category": "NEWSLETTER",
+    "confidence": 0.95,
+    "amount": null,
+    "client": null,
+    "deadline": null,
+    "isUrgent": false,
+    "summary": "Рассылка вендора с новостями продуктов, новыми функциями платформы и вебинарами за декабрь."
+  },
+  "15756313ec93d4ac2ed6b59a6cadbe89407bc861c96670eaf89c4b2b037513d2": {
+    "category": "INVITATION",
+    "confidence": 0.98,
+    "amount": null,
+    "client": null,
+    "deadline": "18 февраля",
+    "isUrgent": false,
+    "summary": "Внешнее приглашение выступить спикером на конференции 18 февраля по теме «ИИ в продажах»."
+  },
+  "0e66b1f91a958a2fa290e3d20197db263641f2a399100501e6eafb5578953126": {
+    "category": "REPORT",
+    "confidence": 0.95,
+    "amount": null,
+    "client": null,
+    "deadline": null,
+    "isUrgent": false,
+    "summary": "Информационное письмо с прогнозом выполнения плана декабря на 94% и указанием рисков по двум сделкам."
+  },
+  "67e855fe2b5638a10386ac528e28eaf94f8006e788d71deba3ff868c8fe42b95": {
+    "category": "CALENDAR",
+    "confidence": 0.95,
+    "amount": null,
+    "client": null,
+    "deadline": "среда 11:00",
+    "isUrgent": false,
+    "summary": "Коллега просит перенести статусную встречу по e-commerce с понедельника на среду 11:00."
+  },
+  "7179bffd4e27d029740b3d042d3e3672498b060abf8ee23d42c7ebdc9a590e91": {
+    "category": "HR",
+    "confidence": 0.96,
+    "amount": null,
+    "client": null,
+    "deadline": "20–30 декабря",
+    "isUrgent": false,
+    "summary": "Поступила просьба согласовать отпуск Ирины Т. на 20–30 декабря, замена уже найдена."
+  },
+  "198eb90d804ebb695332537189ba0af39415b95ade7bdf60b32bde9743697204": {
+    "category": "HR",
+    "confidence": 0.95,
+    "amount": null,
+    "client": null,
+    "deadline": null,
+    "isUrgent": false,
+    "summary": "Отправитель просит руководителя принять решение по офферу финалиста на позицию аккаунт-менеджера."
+  },
+  "b8029882342a95d82c3b59ce278ce6be3486600827adf002df336ec0229a928e": {
+    "category": "MONEY",
+    "confidence": 0.95,
+    "amount": 600000,
+    "client": null,
+    "deadline": "пятница",
+    "isUrgent": false,
+    "summary": "Просьба подтвердить перенос 600 тыс. ₽ с маркетинга на партнёрский канал до пятницы."
+  },
+  "04e2c362e2644b4345fcb869ab0ac50ca188f5e5fca9b7a822ba6d929b769481": {
+    "category": "STATUS",
+    "confidence": 0.72,
+    "amount": null,
+    "client": "Облако Плюс",
+    "deadline": null,
+    "isUrgent": false,
+    "summary": "Запрашивается краткий итог встречи с партнёром «Облако Плюс»."
+  },
+  "57aa2f6754fad9e7e5026b0e9c203242cf49f80506e8044014de2e40478d12e2": {
+    "category": "REPORT",
+    "confidence": 0.92,
+    "amount": null,
+    "client": null,
+    "deadline": null,
+    "isUrgent": false,
+    "summary": "Руководителю сообщают об обновлении недельного дашборда продаж с отклонением от плана на −6%."
+  },
+  "f1b40db4e40f7a7ea39e7517c0ee1c91c1190230985f45534d1e687e08d2f8d5": {
+    "category": "STATUS",
+    "confidence": 0.95,
+    "amount": null,
+    "client": "Облако Плюс",
+    "deadline": "12.12",
+    "isUrgent": false,
+    "summary": "Договор с партнёром «Облако Плюс» находится на подписи у юристов и ожидается до 12.12."
+  },
+  "a41526f847583301adf8694f87890d0e59244e10fcf1d159e2b884c15a1e838e": {
+    "category": "ACCESS",
+    "confidence": 0.93,
+    "amount": null,
+    "client": null,
+    "deadline": null,
+    "isUrgent": false,
+    "summary": "Требуется подтверждение руководителя для предоставления доступа к CRM новому сотруднику Сергею К."
+  },
+  "657bb874353ad57987d4eecc01f1c306ac082601f1b6128991af1fa47f4a3dcd": {
+    "category": "MANAGEMENT",
+    "confidence": 0.78,
+    "amount": null,
+    "client": null,
+    "deadline": "15.12",
+    "isUrgent": false,
+    "summary": "Ивану поручили подготовить 3 слайда с годовыми результатами SMB к 15.12 для совета директоров."
+  },
+  "010823deb01da95898b72a0499c81f8338251a99dddc716d2ffc87644f0007a4": {
+    "category": "CLIENT_SUPPORT",
+    "confidence": 0.95,
+    "amount": null,
+    "client": "ТехноСтрой",
+    "deadline": null,
+    "isUrgent": false,
+    "summary": "Клиент «ТехноСтрой» жалуется на длительное время ответа поддержки, предлагается обсудить вопрос на планёрке."
+  },
+  "2885b66fac45809b190291e3a357a7fe21cad6f9119871db9be78683e3b8e71c": {
+    "category": "CALENDAR",
+    "confidence": 0.95,
+    "amount": null,
+    "client": null,
+    "deadline": "пятница, 10:00",
+    "isUrgent": false,
+    "summary": "Просьба подтвердить участие в планёрке в пятницу в 10:00."
+  },
+  "a6e31c47c22f5f0da3814d0d91b79ad6fe0fbc66c51344a206039db55989ec58": {
+    "category": "MONEY",
+    "confidence": 0.96,
+    "amount": 4800000,
+    "client": "«Ромашка-Ритейл»",
+    "deadline": "до четверга",
+    "isUrgent": false,
+    "summary": "Клиент просит согласовать скидку 12% по годовому контракту на 4,8 млн ₽ до четверга."
   }
 }
