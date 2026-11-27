@@ -10,6 +10,9 @@ import type { PrismaClient } from "@/generated/prisma/client";
 import { clock } from "./clock";
 import { buildDecisionCards, getToday, plural } from "./dashboard";
 import { detectPlatform, extractMeetingUrl } from "./meetings/platform";
+import { MAIL_TYPES } from "./mail/factory";
+import { pollWithPipeline } from "./mail/pipeline";
+import { describeActions, getMailStatus, mailContext } from "./mail/summary";
 import { CATEGORY_HELP, EMAIL_ACTIONS, EMAIL_CATEGORIES } from "./email-triage/classify";
 import { publishEvent } from "./events";
 import { ensureSignature } from "./learning/draft";
@@ -113,6 +116,7 @@ export const APP_GUIDE = [
   "«Подключения» — почта (Gmail, Яндекс, Microsoft 365), Google Календарь, Telegram (карточки руководителю и поручения сотрудникам), Recall (встречи), свои MCP-серверы; у каждого инструмента права: сама / с подтверждением / запрещено.",
   "Минимум для старта — почта и календарь. Без них я работаю на демо-данных.",
   "Чтобы я была на встречах: в «Подключения» подключить Recall и календарь со ссылками Zoom/Meet/Teams. Тогда во встрече можно выбрать участие аватаром: бот заходит, задаёт вопросы по прошлому протоколу, а протокол приходит вам на утверждение. Без Recall протокол можно сделать из транскрипта.",
+  "Почта: после подключения ящика я сама проверяю его раз в пару минут (при первой проверке — письма за 3 дня), письма, где нужно ваше решение, приходят карточками в «Разговоре», рассылки и отчёты идут в сводку, поручения — сотрудникам; ничего не отправляю без правил и подтверждений. Сказать «проверь почту» — и я проверю сразу и отвечу, что нашла.",
   "Режим обучения: пока он включён, ответы, поручения и действия в почте и календаре идут только после «да» руководителя. После серии решений без правок я предлагаю отпустить область. Кадры, руководство, обещания клиентам и деньги выше порога — всегда с руководителем.",
   "В чате я умею: рассказать о дне и встречах, посоветовать, что пропустить, запомнить правило или стиль, подготовить ответ на письмо, поставить поручение сотруднику, менять режим обучения, рутины и профиль, зайти на встречу по ссылке Zoom/Meet/Teams/Webex («зайди на встречу <ссылка>», каждое изменение — после кнопки подтверждения). В Телемост и Dion бот не заходит: там протокол делается из транскрипта, который вставляют у встречи в «Вашем дне».",
   "Пока не умею: сама переносить встречи в календаре, голосовой ввод.",
@@ -124,7 +128,7 @@ export const HELP_TEXT = "Не уверена, что поняла. Спроси
 
 /** Снимок данных руководителя для модели: только его, только нужное для разговора. */
 export async function buildChatContext(db: PrismaClient, leaderId: string): Promise<string> {
-  const [t, leader, rules, memories, learning, readiness, routines] = await Promise.all([
+  const [t, leader, rules, memories, learning, readiness, routines, mail] = await Promise.all([
     getToday(db, leaderId),
     db.leader.findFirstOrThrow({ where: { id: leaderId }, select: { name: true, role: true, protectedBlocks: true, profileMarkdown: true, budgetAutoLimit: true } }),
     db.rule.findMany({ where: { leaderId }, select: { name: true, action: true }, take: 30 }),
@@ -132,6 +136,7 @@ export async function buildChatContext(db: PrismaClient, leaderId: string): Prom
     getLearningStatus(db, leaderId),
     getReadiness(db, leaderId),
     db.routine.findMany({ where: { leaderId }, orderBy: { code: "asc" }, select: { code: true, title: true, cronExpression: true, isActive: true } }),
+    getMailStatus(db, leaderId, clock.now()),
   ]);
   const lines = [
     `Сейчас: ${t.now} (Москва). Руководитель: ${leader.name}, ${leader.role}.`,
@@ -148,6 +153,7 @@ export async function buildChatContext(db: PrismaClient, leaderId: string): Prom
     `Выученные правила стиля: ${memories.map((m) => m.ruleText).join("; ") || "нет"}.`,
     "",
     `Подключения: ${readiness.summary}`,
+    ...mailContext(mail),
     `Режим обучения: ${learning.learningMode ? "включён" : "выключен"}. Решений без правок: ${learning.clean} из ${learning.resolved}. Решаю сама: ${learning.trusted.map((x) => x.label).join(", ") || "ничего"}.` +
       (learning.suggestions.length ? ` Можно предложить отпустить: ${learning.suggestions.map((s) => `${s.label} (${s.streak} подряд без правок)`).join(", ")}.` : ""),
     `Рутины: ${routines.map((r) => `${r.code} «${r.title}» ${describeCron(r.cronExpression)}${r.isActive ? "" : " (выключена)"}`).join("; ") || "нет"}.`,
@@ -174,6 +180,7 @@ export async function handleChat(
   if (STATUS_RE.test(text)) return { text: await statusText(db, leaderId) };
   const join = await proposeJoin(db, leaderId, text);
   if (join) return join;
+  if (CHECK_MAIL_RE.test(text)) return checkMailNow(db, leaderId);
 
   const context = await buildChatContext(db, leaderId);
   const dialog = history.slice(-8).map((m) => `${m.from === "me" ? "Руководитель" : "Помощник"}: ${m.text}`).join("\n");
@@ -206,6 +213,41 @@ export async function handleChat(
     draft: replies.find((r) => r.draft)?.draft,
     actions: actions.length ? actions : undefined,
   };
+}
+
+const CHECK_MAIL_RE = /(проверь|обнови|посмотри|разбери|глянь|подтяни)\s+(мою\s+|мои\s+|новую\s+|новые\s+)?(почт|письм|входящ|ящик)/i;
+const MAIL_BATCH = 30;
+
+/**
+ * «Проверь почту»: чтение ящика идёт сразу, без кнопки: это не действие во внешнем сервисе. Что делать с письмами,
+ * решают правила и права подключения, как при автоматической проверке. Ответ — человеческий итог, а не «ничего нет».
+ */
+async function checkMailNow(db: PrismaClient, leaderId: string): Promise<ChatReply> {
+  const boxes = await db.connector.findMany({ where: { leaderId, isActive: true, type: { in: [...MAIL_TYPES] } }, select: { id: true, name: true } });
+  if (boxes.length === 0) return { text: "Почта не подключена: откройте «Подключения» и добавьте Gmail, Яндекс или Microsoft 365. Дальше я сама буду разбирать письма и приносить вам только то, что требует решения." };
+  const lines: string[] = [];
+  for (const b of boxes) {
+    const res = await pollWithPipeline(db, leaderId, b.id);
+    if (!res.ok) {
+      lines.push(`${b.name}: ${res.message}.`);
+      continue;
+    }
+    if (res.fetched === 0) {
+      lines.push(`${b.name}: новых писем нет.`);
+      continue;
+    }
+    const parts = [`${b.name}: забрала ${res.fetched} ${plural(res.fetched, "письмо", "письма", "писем")}`];
+    const acts = describeActions(res.stats.byAction);
+    if (acts) parts.push(`из них ${acts}`);
+    if (res.stats.decisionsCreated) parts.push(`карточек для вас: ${res.stats.decisionsCreated} (выше в «Решениях»)`);
+    if (res.archived) parts.push(`убрала из входящих рассылок: ${res.archived}`);
+    lines.push(`${parts.join(". ")}.${res.fetched >= MAIL_BATCH ? " Возможно, есть ещё: скажите «проверь почту» снова." : ""}`);
+  }
+  if (lines.every((l) => l.includes("новых писем нет"))) {
+    const s = await getMailStatus(db, leaderId, clock.now());
+    lines.push(s.recentTotal ? `Ранее уже разобрано писем за 3 дня: ${s.recentTotal}. Что с ними сделано — спросите, расскажу.` : "Это не ошибка: при первой проверке я беру письма за последние 3 дня, дальше — только новые.");
+  }
+  return { text: lines.join("\n") };
 }
 
 const JOIN_RE = /(зайд|подключ|присоедин|подойд|будь\s+на|иди\s+на|приди)/i;

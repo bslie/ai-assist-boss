@@ -9,7 +9,7 @@ import { dbUsageSink } from "@/core/llm/usage-db";
 import { db } from "@/db/client";
 import { jsonError, parseBody, requireLeaderId } from "@/lib/http";
 
-export const maxDuration = 60;
+export const maxDuration = 300; // «проверь почту» разбирает письма живой моделью
 
 const CACHE_FILE = path.resolve(process.cwd(), "data/cache/llm-chat.json");
 
