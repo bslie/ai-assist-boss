@@ -16,6 +16,8 @@ import type { LlmClient } from "./llm";
 import { getReadiness } from "./connectors/readiness";
 import { SCOPE_LABEL, TRUST_SCOPES, canTrust, getLearningStatus, type LearningPatch } from "./learning/mode";
 import { describeCron, validCron } from "./routines";
+import { proposeProfileEdit } from "./profile/edit";
+import type { ProfilePatch } from "./profile/patch";
 import { createRule } from "./rules";
 import { TASK_ASSIGN_SCOPE } from "./tasks/dispatch";
 import { createTask } from "./tasks/registry";
@@ -42,7 +44,7 @@ export type ChatAction =
   | {
       label: string;
       /** PATCH на API настроек: режим обучения или рутина. */
-      patch: { path: "/api/learning" | "/api/routines"; body: LearningPatch | { id: string; isActive?: boolean; cronExpression?: string } };
+      patch: { path: "/api/learning" | "/api/routines" | "/api/profile"; body: LearningPatch | ProfilePatch | { id: string; isActive?: boolean; cronExpression?: string } };
       /** Что показать после успешного применения. */
       done: string;
     };
@@ -54,7 +56,7 @@ export interface ChatReply {
 }
 
 const ActionSchema = z.object({
-  kind: z.enum(["RULE", "STYLE", "REPLY", "TASK", "LEARNING", "ROUTINE"]),
+  kind: z.enum(["RULE", "STYLE", "REPLY", "TASK", "LEARNING", "ROUTINE", "PROFILE"]),
   /** RULE: что делать с письмами категории. */
   rule: z.object({ name: z.string().min(1).max(120), category: z.enum(EMAIL_CATEGORIES), action: z.enum(EMAIL_ACTIONS) }).nullable(),
   /** STYLE: правило о манере письма одним предложением. */
@@ -67,6 +69,8 @@ const ActionSchema = z.object({
   learning: z.object({ mode: z.enum(["ON", "OFF"]).nullable(), scope: z.enum(TRUST_SCOPES).nullable(), trusted: z.boolean().nullable() }).nullable(),
   /** ROUTINE: код рутины из контекста, новое время «ЧЧ:ММ» и/или включить-выключить. */
   routine: z.object({ code: z.string().min(1).max(40), time: z.string().nullable(), active: z.boolean().nullable() }).nullable(),
+  /** PROFILE: правка профиля словами: цели квартала, порог по деньгам, манера писем, каналы. */
+  profile: z.object({ instruction: z.string().min(3).max(500) }).nullish(),
 });
 
 const AgentSchema = z.object({
@@ -87,6 +91,7 @@ const SYSTEM = [
   "STYLE — одно предложение в повелительном наклонении. REPLY.gist — суть ответа без выдуманных деталей.",
   "LEARNING — «выключи режим обучения» (mode OFF), «снова учись» (mode ON), «приглашения решай сама» / «поручения отправляй без меня» (scope + trusted true), «верни отчёты мне» (scope + trusted false). Поручения сотрудникам — scope TASK_ASSIGN.",
   "ROUTINE — «утренний план присылай в 9:00», «выключи итог недели»: code из списка рутин в контексте, time «ЧЧ:ММ» или null, active true/false или null.",
+  "PROFILE — «добавь цель квартала …», «убери вторую цель», «порог по деньгам 50 тысяч», «пиши мне проще»: что изменить в профиле — в instruction, одной понятной просьбой, как сказал руководитель, с числами из его слов. Правила писем — это RULE, время рутин — ROUTINE.",
   "Если есть действие, answer оставь пустой строкой: результат действия сообщит система. Не утверждай, что что-то запомнила или отправила.",
   "На вопросы о самом приложении («что ты умеешь», «где настроить», «что подключить, чтобы ты была на встречах», «почему ты спрашиваешь») отвечай по разделу «О ПРИЛОЖЕНИИ» и по состоянию подключений в контексте, называя раздел, куда идти.",
 ].join(" ");
@@ -96,13 +101,13 @@ export const APP_GUIDE = [
   "О ПРИЛОЖЕНИИ.",
   "Разделы: «Разговор» — главная: сводка дня, карточки решений, этот чат и статус режима обучения. «Поручения» — задачи сотрудникам, сроки, приёмка результата.",
   "«Как я работаю» — правила разбора писем (защищённые правила ослабить нельзя). «Рутины» — утренний план, итог недели, контроль сроков: время и включение.",
-  "«Метрики» — сэкономленные часы, доля писем без руководителя, стоимость. «Профиль» — цели, стиль, порог бюджета, импорт leader_profile.md.",
+  "«Метрики» — сэкономленные часы, доля писем без руководителя, стоимость. «Профиль» — цели, стиль, порог бюджета: страница только для чтения, профиль меняется здесь, в чате («добавь цель…», «порог по деньгам 50 тысяч»).",
   "«Подключения» — почта (Gmail, Яндекс, Microsoft 365), Google Календарь, Telegram (карточки руководителю и поручения сотрудникам), Recall (встречи), свои MCP-серверы; у каждого инструмента права: сама / с подтверждением / запрещено.",
   "Минимум для старта — почта и календарь. Без них я работаю на демо-данных.",
   "Чтобы я была на встречах: в «Подключения» подключить Recall и календарь со ссылками Zoom/Meet/Teams. Тогда во встрече можно выбрать участие аватаром: бот заходит, задаёт вопросы по прошлому протоколу, а протокол приходит вам на утверждение. Без Recall протокол можно сделать из транскрипта.",
   "Режим обучения: пока он включён, ответы, поручения и действия в почте и календаре идут только после «да» руководителя. После серии решений без правок я предлагаю отпустить область. Кадры, руководство, обещания клиентам и деньги выше порога — всегда с руководителем.",
-  "В чате я умею: рассказать о дне и встречах, посоветовать, что пропустить, запомнить правило или стиль, подготовить ответ на письмо, поставить поручение сотруднику, менять режим обучения и рутины (каждое изменение — после кнопки подтверждения).",
-  "Пока не умею: сама переносить встречи в календаре, менять профиль и порог бюджета из чата (это в «Профиль»), голосовой ввод.",
+  "В чате я умею: рассказать о дне и встречах, посоветовать, что пропустить, запомнить правило или стиль, подготовить ответ на письмо, поставить поручение сотруднику, менять режим обучения, рутины и профиль (каждое изменение — после кнопки подтверждения).",
+  "Пока не умею: сама переносить встречи в календаре, голосовой ввод.",
 ].join(" ");
 
 const STATUS_RE = /^\s*(что\s+(у\s+нас\s+)?на\s+сегодня|план\s+(на\s+)?(день|сегодня)|что\s+нового|что\s+горит)\W*$/i;
@@ -181,6 +186,7 @@ export async function handleChat(
     else if (a.kind === "TASK" && a.task) replies.push(await addTask(db, llm, leaderId, a.task));
     else if (a.kind === "LEARNING" && a.learning) replies.push(await proposeLearning(db, leaderId, a.learning));
     else if (a.kind === "ROUTINE" && a.routine) replies.push(await proposeRoutine(db, leaderId, a.routine));
+    else if (a.kind === "PROFILE" && a.profile) replies.push(await proposeProfile(db, llm, leaderId, a.profile.instruction));
   }
   if (replies.length === 0) return { text: res.answer.trim() || HELP_TEXT };
   const lead = replies.length > 1 || !res.answer.trim() ? [] : [res.answer.trim()];
@@ -317,6 +323,24 @@ async function proposeRoutine(
         done: `«${routine.title}»: ${show(cron, active)}`,
       },
     ],
+  };
+}
+
+const money = (n: number) => `${n.toLocaleString("ru-RU")} ₽`;
+
+/** Правка профиля из чата: «было → станет» и кнопка; запись идёт PATCH /api/profile. */
+async function proposeProfile(db: PrismaClient, llm: LlmClient, leaderId: string, instruction: string): Promise<ChatReply> {
+  const res = await proposeProfileEdit(db, llm, leaderId, instruction);
+  if (!res.ok) return { text: res.message };
+  const lines = ["Предлагаю изменить профиль."];
+  for (const g of res.goals?.removed ?? []) lines.push(`Уберу цель: ${g}`);
+  for (const g of res.goals?.added ?? []) lines.push(`Добавлю цель: ${g}`);
+  if (res.goals && !res.goals.added.length && !res.goals.removed.length) lines.push("Поменяю порядок целей.");
+  if (res.budget) lines.push(`Порог по деньгам: ${money(res.budget.from)} → ${money(res.budget.to)}`);
+  if (res.style) lines.push(`Манера писем: ${res.style}`);
+  return {
+    text: lines.join("\n"),
+    actions: [{ label: "Применить", patch: { path: "/api/profile", body: res.patch }, done: "Профиль обновлён" }],
   };
 }
 
