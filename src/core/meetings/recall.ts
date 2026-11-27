@@ -140,6 +140,37 @@ export async function joinMeetingNow(db: PrismaClient, leaderId: string, meeting
   return launchAvatarBot(db, leaderId, meetingId);
 }
 
+const AD_HOC_MS = 60 * 60_000;
+
+/**
+ * «Зайди вот сюда»: без `meetingId` создаём разовую встречу на час от текущего момента, чтобы бот,
+ * транскрипт и протокол шли тем же путём, что у встреч из календаря. Платформу проверяем до создания.
+ */
+export async function joinByLink(db: PrismaClient, leaderId: string, args: { url: string; meetingId?: string }): Promise<JoinNowResult> {
+  if (args.meetingId) return joinMeetingNow(db, leaderId, args.meetingId, args.url);
+  const parsed = MeetingUrlSchema.safeParse(args.url);
+  if (!parsed.success) return { status: "rejected", reason: "некорректная ссылка на встречу" };
+  const platform = detectPlatform(parsed.data);
+  if (!platform.botSupported) return { status: "rejected", reason: `${platform.label}: бот туда не заходит` };
+  const now = clock.now();
+  const meeting = await db.meeting.create({
+    data: {
+      leaderId,
+      title: `Встреча по ссылке (${platform.label})`,
+      category: "OPERATIONAL",
+      startAt: now,
+      endAt: new Date(now.getTime() + AD_HOC_MS),
+      attendees: [],
+      participationMode: "AVATAR",
+      meetingUrl: parsed.data,
+    },
+  });
+  const res = await launchAvatarBot(db, leaderId, meeting.id);
+  // Бот не запустился (нет Recall, запрет в правах): пустую встречу в списке не оставляем.
+  if (res.status !== "launched") await db.meeting.delete({ where: { id: meeting.id } }).catch(() => {});
+  return res;
+}
+
 /** Встречи с аватаром, которым пора запускать бота: старт в ближайшую минуту по демо-времени (или уже идёт). */
 export async function dueAvatarMeetings(db: PrismaClient): Promise<{ id: string; leaderId: string }[]> {
   const now = clock.now();

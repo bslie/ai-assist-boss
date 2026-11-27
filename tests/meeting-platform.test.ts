@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { meetingUrlFromFields } from "@/core/dataset/ics";
 import { detectPlatform, extractMeetingUrl, MeetingUrlSchema } from "@/core/meetings/platform";
 
 describe("detectPlatform", () => {
@@ -22,6 +23,13 @@ describe("MeetingUrlSchema", () => {
     expect(MeetingUrlSchema.safeParse("http://zoom.us/j/1").success).toBe(false);
     expect(MeetingUrlSchema.safeParse("https://user:pw@zoom.us/j/1").success).toBe(false);
     expect(MeetingUrlSchema.safeParse("https://zoom.us/j/1").success).toBe(true);
+  });
+});
+
+describe("meetingUrlFromFields (ICS)", () => {
+  it("раскрывает экранирование и берёт первую известную ссылку", () => {
+    expect(meetingUrlFromFields([undefined, "Планёрка\\nhttps://us02web.zoom.us/j/5\\, пароль 1", "https://meet.google.com/a-b-c"])).toBe("https://us02web.zoom.us/j/5");
+    expect(meetingUrlFromFields(["Переговорная 3", undefined])).toBeNull();
   });
 });
 

@@ -81,6 +81,11 @@ export function Composer({ leaderId, children }: { leaderId: string; /** Под 
     if ("resolve" in a) {
       const res = await fetch(`/api/decisions/${a.resolve.decisionId}/resolve${q}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(a.resolve.body) });
       result = res.ok ? "Ответ утверждён" : res.status === 409 ? "Это письмо уже решено" : "Не получилось, попробуйте в карточке";
+    } else if ("post" in a) {
+      const res = await fetch(`${a.post.path}${q}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(a.post.body) });
+      const j = (await res.json().catch(() => ({}))) as { error?: string; status?: string; reason?: string };
+      result = res.ok && j.status === "launched" ? a.done : (j.error ?? j.reason ?? "Не получилось отправить помощника");
+      if (res.ok) router.refresh();
     } else {
       // Изменение настроек — тем же API, что и страницы; страница перечитается по SSE.
       const res = await fetch(`${a.patch.path}${q}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(a.patch.body) });

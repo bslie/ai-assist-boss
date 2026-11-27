@@ -1,0 +1,88 @@
+import "dotenv/config";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { LlmClient, MemoryCache, type LlmProvider } from "@/core/llm";
+import { seedTempLeader } from "./helpers/eval-env";
+
+vi.stubEnv("APP_CLOCK_MODE", "real");
+vi.stubEnv("RECALL_API_KEY", "");
+const { db } = await import("@/db/client");
+const { clock } = await import("@/core/clock");
+const { handleChat } = await import("@/core/chat");
+const { joinByLink } = await import("@/core/meetings/recall");
+
+const dbUp = await db.$queryRaw`select 1`.then(() => true, () => false);
+
+/** Модель не должна вызываться: разбор ссылки идёт кодом, ссылка в LLM не уходит. */
+function failingLlm() {
+  let calls = 0;
+  const provider: LlmProvider = {
+    name: "fake",
+    model: "m",
+    async generate() {
+      calls++;
+      throw new Error("LLM не должна вызываться");
+    },
+  };
+  return { llm: new LlmClient({ provider, cache: new MemoryCache() }), calls: () => calls };
+}
+
+const ZOOM = "https://us02web.zoom.us/j/123456789?pwd=abc";
+
+describe.skipIf(!dbUp)("чат: зайти на встречу по ссылке (Postgres)", () => {
+  let leaderId = "";
+
+  beforeAll(async () => {
+    await clock.init();
+    leaderId = await seedTempLeader(db, "chat-join");
+    // Календарь датасета сдвинут к «сейчас»: для предсказуемого теста оставляем только свои встречи.
+    await db.meeting.deleteMany({ where: { leaderId } });
+  });
+  afterAll(async () => {
+    await db.leader.deleteMany({ where: { id: leaderId } });
+  });
+
+  const mk = (title: string, fromMin: number, lenMin = 30) =>
+    db.meeting.create({
+      data: { leaderId, title, category: "OPERATIONAL", startAt: new Date(clock.now().getTime() + fromMin * 60_000), endAt: new Date(clock.now().getTime() + (fromMin + lenMin) * 60_000), attendees: [] },
+    });
+
+  it("Телемост: бот не заходит, объясняем путь через транскрипт, действия нет", async () => {
+    const f = failingLlm();
+    const r = await handleChat(db, f.llm, leaderId, "Зайди на встречу https://telemost.yandex.ru/j/123");
+    expect(f.calls()).toBe(0);
+    expect(r.actions).toBeUndefined();
+    expect(r.text).toContain("транскрипт");
+  });
+
+  it("без ближайших встреч предлагает разовую; с одной — привязывает к ней; с двумя — спрашивает", async () => {
+    const f = failingLlm();
+    const none = await handleChat(db, f.llm, leaderId, `Подключись к встрече ${ZOOM}`);
+    const a0 = none.actions?.[0];
+    expect(a0 && "post" in a0 ? a0.post.body : null).toEqual({ url: ZOOM });
+
+    const m1 = await mk("Планёрка А", 10);
+    const one = await handleChat(db, f.llm, leaderId, `зайди на встречу ${ZOOM}`);
+    const a1 = one.actions?.[0];
+    expect(a1 && "post" in a1 ? a1.post.body : null).toEqual({ url: ZOOM, meetingId: m1.id });
+
+    await mk("Планёрка Б", 20);
+    const two = await handleChat(db, f.llm, leaderId, `зайди на встречу ${ZOOM}`);
+    expect(two.actions).toBeUndefined();
+    expect(two.text).toContain("Планёрка А");
+    expect(f.calls()).toBe(0);
+  });
+
+  it("ссылка без просьбы зайти идёт обычным путём (в модель)", async () => {
+    const f = failingLlm();
+    await expect(handleChat(db, f.llm, leaderId, `что это за ссылка ${ZOOM}`)).rejects.toThrow();
+    expect(f.calls()).toBeGreaterThan(0);
+  });
+
+  it("разовая встреча не остаётся, если бот не запустился (Recall не подключён)", async () => {
+    const before = await db.meeting.count({ where: { leaderId } });
+    const res = await joinByLink(db, leaderId, { url: ZOOM });
+    expect(res.status).toBe("skipped");
+    expect(await db.meeting.count({ where: { leaderId } })).toBe(before);
+    expect((await joinByLink(db, leaderId, { url: "https://telemost.yandex.ru/j/1" })).status).toBe("rejected");
+  });
+});

@@ -68,6 +68,8 @@ export interface DayItem {
   details: string[];
   /** Встреча, на которую можно отправить ИИ-помощника (ещё не закончилась). */
   join?: { meetingId: string; url: string; botActive: boolean };
+  /** Встреча началась, протокол не утверждён: транскрипт можно вставить руками (Телемост, Dion, без Recall). */
+  transcript?: { meetingId: string };
 }
 
 export interface TodayData {
@@ -205,6 +207,7 @@ export async function getToday(db: PrismaClient, leaderId: string): Promise<Toda
         ...(m.meetingUrl ? [m.meetingUrl] : []),
       ],
       ...(m.endAt > now ? { join: { meetingId: m.id, url: m.meetingUrl ?? "", botActive: m.recallBotId !== null } } : {}),
+      ...(m.startAt <= now && !m.isProtocolApproved ? { transcript: { meetingId: m.id } } : {}),
     })),
     ...tasks.filter(overdue).map<DayItem>((t) => ({
       time: "срок прошёл",

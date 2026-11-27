@@ -7,7 +7,9 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { PrismaClient } from "@/generated/prisma/client";
+import { clock } from "./clock";
 import { buildDecisionCards, getToday, plural } from "./dashboard";
+import { detectPlatform, extractMeetingUrl } from "./meetings/platform";
 import { CATEGORY_HELP, EMAIL_ACTIONS, EMAIL_CATEGORIES } from "./email-triage/classify";
 import { publishEvent } from "./events";
 import { ensureSignature } from "./learning/draft";
@@ -46,6 +48,12 @@ export type ChatAction =
       /** PATCH на API настроек: режим обучения или рутина. */
       patch: { path: "/api/learning" | "/api/routines" | "/api/profile"; body: LearningPatch | ProfilePatch | { id: string; isActive?: boolean; cronExpression?: string } };
       /** Что показать после успешного применения. */
+      done: string;
+    }
+  | {
+      label: string;
+      /** POST на API встреч: ИИ-помощник заходит по ссылке. */
+      post: { path: "/api/meetings/join"; body: { url: string; meetingId?: string } };
       done: string;
     };
 export interface ChatReply {
@@ -106,7 +114,7 @@ export const APP_GUIDE = [
   "Минимум для старта — почта и календарь. Без них я работаю на демо-данных.",
   "Чтобы я была на встречах: в «Подключения» подключить Recall и календарь со ссылками Zoom/Meet/Teams. Тогда во встрече можно выбрать участие аватаром: бот заходит, задаёт вопросы по прошлому протоколу, а протокол приходит вам на утверждение. Без Recall протокол можно сделать из транскрипта.",
   "Режим обучения: пока он включён, ответы, поручения и действия в почте и календаре идут только после «да» руководителя. После серии решений без правок я предлагаю отпустить область. Кадры, руководство, обещания клиентам и деньги выше порога — всегда с руководителем.",
-  "В чате я умею: рассказать о дне и встречах, посоветовать, что пропустить, запомнить правило или стиль, подготовить ответ на письмо, поставить поручение сотруднику, менять режим обучения, рутины и профиль (каждое изменение — после кнопки подтверждения).",
+  "В чате я умею: рассказать о дне и встречах, посоветовать, что пропустить, запомнить правило или стиль, подготовить ответ на письмо, поставить поручение сотруднику, менять режим обучения, рутины и профиль, зайти на встречу по ссылке Zoom/Meet/Teams/Webex («зайди на встречу <ссылка>», каждое изменение — после кнопки подтверждения). В Телемост и Dion бот не заходит: там протокол делается из транскрипта, который вставляют у встречи в «Вашем дне».",
   "Пока не умею: сама переносить встречи в календаре, голосовой ввод.",
 ].join(" ");
 
@@ -164,6 +172,8 @@ export async function handleChat(
   history: { from: "me" | "bot"; text: string }[] = [],
 ): Promise<ChatReply> {
   if (STATUS_RE.test(text)) return { text: await statusText(db, leaderId) };
+  const join = await proposeJoin(db, leaderId, text);
+  if (join) return join;
 
   const context = await buildChatContext(db, leaderId);
   const dialog = history.slice(-8).map((m) => `${m.from === "me" ? "Руководитель" : "Помощник"}: ${m.text}`).join("\n");
@@ -195,6 +205,47 @@ export async function handleChat(
     text: [...lead, ...replies.map((r) => r.text)].join("\n\n"),
     draft: replies.find((r) => r.draft)?.draft,
     actions: actions.length ? actions : undefined,
+  };
+}
+
+const JOIN_RE = /(зайд|подключ|присоедин|подойд|будь\s+на|иди\s+на|приди)/i;
+const JOIN_WINDOW_MS = 3 * 3_600_000;
+
+/**
+ * «Зайди на встречу <ссылка>»: разбор без LLM, ссылка не уходит в модель. Бот не запускается сам:
+ * чат только предлагает кнопку (SPEC 1.1). К какой встрече относится ссылка — решает ближайшая; неясно — спрашиваем.
+ */
+async function proposeJoin(db: PrismaClient, leaderId: string, text: string): Promise<ChatReply | null> {
+  if (!JOIN_RE.test(text)) return null;
+  const url = extractMeetingUrl(text);
+  if (!url) return null;
+  const platform = detectPlatform(url);
+  if (!platform.botSupported) {
+    return {
+      text: `${platform.label}: бот Recall туда не заходит, поэтому присоединиться я не смогу. После встречи пришлите транскрипт или запись текстом: в «Вашем дне» у встречи есть поле «Транскрипт», и я соберу протокол.`,
+    };
+  }
+  const now = clock.now();
+  const near = await db.meeting.findMany({
+    where: { leaderId, recallBotId: null, endAt: { gt: now }, startAt: { lte: new Date(now.getTime() + JOIN_WINDOW_MS) } },
+    orderBy: { startAt: "asc" },
+    select: { id: true, title: true },
+  });
+  if (near.length > 1) {
+    return { text: `Сейчас подходят несколько встреч: ${near.map((m) => `«${m.title}»`).join(", ")}. Скажите, на какую зайти, или откройте нужную в «Вашем дне» и вставьте ссылку там.` };
+  }
+  const target = near[0];
+  return {
+    text: target
+      ? `Предлагаю отправить ИИ-помощника на «${target.title}» (${platform.label}). Он назовётся ИИ-помощником, зададит вопросы по прошлому протоколу и запишет ход встречи; протокол придёт вам на утверждение.`
+      : `Ближайших встреч в календаре нет. Предлагаю зайти по ссылке (${platform.label}) на разовую встречу: ИИ-помощник назовётся, запишет ход встречи, протокол придёт вам на утверждение.`,
+    actions: [
+      {
+        label: "Отправить помощника",
+        post: { path: "/api/meetings/join", body: { url, ...(target ? { meetingId: target.id } : {}) } },
+        done: "Помощник отправлен на встречу",
+      },
+    ],
   };
 }
 

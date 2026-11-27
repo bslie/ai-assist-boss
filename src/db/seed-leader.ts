@@ -100,8 +100,8 @@ export async function seedLeader(db: PrismaClient, input: SeedLeaderInput): Prom
       endAt: e.end,
       attendees: e.attendees,
       participationMode: defaultParticipation(e.category, e.summary, input.draft.protectedBlocks ?? []),
-      // В датасете ссылок нет: для демо с настоящим Zoom задаётся DEMO_MEETING_URL (только встречам с аватаром).
-      meetingUrl: defaultParticipation(e.category, e.summary, input.draft.protectedBlocks ?? []) === "AVATAR" ? (process.env.DEMO_MEETING_URL ?? null) : null,
+      // Ссылка из календаря; в датасете её нет, поэтому для демо с настоящим Zoom задаётся DEMO_MEETING_URL (только встречам с аватаром).
+      meetingUrl: e.url ?? (defaultParticipation(e.category, e.summary, input.draft.protectedBlocks ?? []) === "AVATAR" ? (process.env.DEMO_MEETING_URL ?? null) : null),
     })),
   });
   // Серия встреч: предыдущая встреча с тем же названием (нужна для вопросов по прошлому протоколу).

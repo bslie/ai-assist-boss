@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
+import { extractMeetingUrl } from "../meetings/platform";
 import { DATASET_DIR } from "./index";
 
 export const MEETING_CATEGORIES = ["OPERATIONAL", "MONEY", "CLIENT", "PARTNER", "MANAGEMENT", "ONE_ON_ONE"] as const;
@@ -22,6 +23,8 @@ const EventSchema = z.object({
   end: z.date(),
   category: z.enum(MEETING_CATEGORIES),
   attendees: z.array(z.string()),
+  /** Ссылка на встречу из URL / LOCATION / DESCRIPTION (Zoom, Meet, Teams…), если она есть. */
+  url: z.string().nullable(),
 });
 export type CalendarEvent = z.infer<typeof EventSchema>;
 
@@ -30,6 +33,16 @@ function parseIcsDate(v: string): Date {
   const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})$/.exec(v.trim());
   if (!m) throw new Error(`Bad ICS date: ${v}`);
   return new Date(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}+03:00`);
+}
+
+/** Поля ICS экранируют переводы строк и запятые: раскрываем, иначе `\n` прилипает к ссылке. */
+export function meetingUrlFromFields(fields: (string | undefined)[]): string | null {
+  for (const f of fields) {
+    if (!f) continue;
+    const url = extractMeetingUrl(f.replace(/\\[nN]/g, " ").replace(/\\([,;\\])/g, "$1"));
+    if (url) return url;
+  }
+  return null;
 }
 
 /** Минимальный парсер VEVENT (без RRULE): достаточно для календаря датасета. */
@@ -55,6 +68,7 @@ export function parseIcs(text: string): CalendarEvent[] {
           end: parseIcsDate(cur.DTEND),
           category,
           attendees: [...attendees],
+          url: meetingUrlFromFields([cur.URL, cur.LOCATION, cur.DESCRIPTION]),
         }),
       );
       cur = null;
