@@ -18,7 +18,10 @@ export async function parseBody<S extends z.ZodType>(
     return { ok: false, res: jsonError(400, "Тело запроса — невалидный JSON") };
   }
   const parsed = schema.safeParse(raw);
-  if (!parsed.success) return { ok: false, res: jsonError(400, "Невалидные данные", { issues: parsed.error.issues }) };
+  if (!parsed.success) {
+    const detail = parsed.error.issues.map((i) => i.message).join("; ");
+    return { ok: false, res: jsonError(400, detail ? `Невалидные данные: ${detail}` : "Невалидные данные", { issues: parsed.error.issues }) };
+  }
   return { ok: true, data: parsed.data };
 }
 
