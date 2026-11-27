@@ -17,13 +17,14 @@ export const gmail: ConnectorManifest = {
     "«OAuth consent screen» (Google Auth Platform): тип External, режим Testing. В «Test users» добавьте адреса, чьи ящики будете подключать.",
     "«Data access»: добавьте права gmail.modify и gmail.send (для Календаря — calendar.events).",
     "«Clients» → «Create client» → Web application. В «Authorized redirect URIs» вставьте адрес, показанный ниже.",
-    "Скопируйте Client ID и Client secret в GOOGLE_CLIENT_ID и GOOGLE_CLIENT_SECRET на сервере и перезапустите приложение.",
+    "Скопируйте Client ID и Client secret в «Управление» → «Интеграции»: форма хранит их в зашифрованном виде, перезапуск не нужен.",
   ],
   auth: {
     kind: "oauth",
     authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
     tokenUrl: "https://oauth2.googleapis.com/token",
     scopes: ["openid", "email", "https://www.googleapis.com/auth/gmail.modify", "https://www.googleapis.com/auth/gmail.send"],
+    appKey: "google",
     clientIdEnv: "GOOGLE_CLIENT_ID",
     clientSecretEnv: "GOOGLE_CLIENT_SECRET",
     // Без offline и consent Google не выдаст refresh-токен, и через час доступ пропадёт.

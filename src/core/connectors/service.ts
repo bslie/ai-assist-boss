@@ -8,6 +8,7 @@ import type { Prisma, PrismaClient } from "@/generated/prisma/client";
 import { decryptJson, encryptJson, SecretsNotConfigured, secretsConfigured } from "./crypto";
 import { isMailType, verifyMailCredentials } from "../mail/factory";
 import { probeMcp, type McpTool } from "./mcp";
+import { configuredOAuthApps } from "./oauth-app";
 import { verifyConnectorCredentials } from "./verify";
 import { getModule, MODULES } from "./modules";
 import { PermSchema, type ConnectorManifest, type ConnectorTool, type Perm } from "./types";
@@ -105,9 +106,8 @@ function toolsFor(m: ConnectorManifest, row: Row | null, stored: Stored | null):
 
 const envReady = (names: string[] = []) => names.every((n) => Boolean(process.env[n]));
 
-export const oauthReady = (m: ConnectorManifest) => m.auth.kind === "oauth" && Boolean(process.env[m.auth.clientIdEnv] && process.env[m.auth.clientSecretEnv]);
-
-function itemFor(m: ConnectorManifest, row: Row | null): CatalogItem {
+/** `ready` — ключи OAuth-приложений, уже заданные администратором (см. oauth-app.ts). */
+function itemFor(m: ConnectorManifest, row: Row | null, ready: Set<string>): CatalogItem {
   const stored = row ? decryptJson<Stored>(row.encryptedConfig) : null;
   const fields = m.auth.kind === "credentials" ? m.auth.fields : [];
   const values: Record<string, string> = {};
@@ -124,9 +124,9 @@ function itemFor(m: ConnectorManifest, row: Row | null): CatalogItem {
   if (m.status === "soon") state = "soon";
   else if (!row) {
     state = "available";
-    if (m.auth.kind === "oauth" && !oauthReady(m)) {
+    if (m.auth.kind === "oauth" && !ready.has(m.auth.appKey)) {
       state = "needs_setup";
-      hint = `Администратору нужно зарегистрировать приложение и задать ${m.auth.clientIdEnv} и ${m.auth.clientSecretEnv}.`;
+      hint = "Администратору нужно один раз указать ключи приложения (Client ID и Client secret) в «Управление» → «Интеграции».";
     } else if (m.auth.kind === "none" && !envReady(m.auth.envRequired)) {
       state = "needs_setup";
       hint = `На сервере не задано: ${(m.auth.envRequired ?? []).join(", ")}.`;
@@ -175,12 +175,13 @@ function itemFor(m: ConnectorManifest, row: Row | null): CatalogItem {
 
 export async function listCatalog(db: PrismaClient, leaderId: string): Promise<CatalogItem[]> {
   const rows = await db.connector.findMany({ where: { leaderId }, orderBy: { createdAt: "asc" } });
+  const ready = await configuredOAuthApps(db);
   const out: CatalogItem[] = [];
   for (const m of MODULES) {
     const mine = rows.filter((r) => r.type === m.id);
-    for (const r of mine) out.push(itemFor(m, r));
+    for (const r of mine) out.push(itemFor(m, r, ready));
     // Модуль без записи (или шаблон «добавить ещё», если модуль допускает несколько) показываем как доступный.
-    if (mine.length === 0 || m.multiple) out.push(itemFor(m, null));
+    if (mine.length === 0 || m.multiple) out.push(itemFor(m, null, ready));
   }
   return out;
 }

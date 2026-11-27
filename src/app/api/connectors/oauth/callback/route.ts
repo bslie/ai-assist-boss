@@ -3,6 +3,7 @@ import { z } from "zod";
 import { verifyState } from "@/core/connectors/crypto";
 import { getModule } from "@/core/connectors/modules";
 import { saveOAuthTokens } from "@/core/connectors/service";
+import { loadOAuthApp } from "@/core/connectors/oauth-app";
 import { db } from "@/db/client";
 import { requestOrigin } from "@/lib/origin";
 
@@ -27,12 +28,14 @@ export async function GET(req: Request) {
   if (!(await db.leader.findUnique({ where: { id: leaderId }, select: { id: true } }))) return back("error=1");
 
   try {
+    const app = await loadOAuthApp(db, m);
+    if (!app) throw new Error("oauth app is not configured");
     const res = await fetch(m.auth.tokenUrl, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
-        client_id: process.env[m.auth.clientIdEnv] ?? "",
-        client_secret: process.env[m.auth.clientSecretEnv] ?? "",
+        client_id: app.clientId,
+        client_secret: app.clientSecret,
         grant_type: "authorization_code",
         code,
         redirect_uri: `${origin}/api/connectors/oauth/callback`,

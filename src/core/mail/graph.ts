@@ -20,6 +20,8 @@ export interface GraphOptions {
   tokenUrl: string;
   clientId: string;
   clientSecret: string;
+  /** Ключи приложения читаются в момент обновления токена: админ мог поменять их в панели управления. Приоритетнее clientId/clientSecret. */
+  getCredentials?: () => Promise<{ clientId: string; clientSecret: string } | null>;
   fetch?: typeof fetch;
 }
 
@@ -49,10 +51,11 @@ export class GraphMailConnector implements MailConnector {
     const t = this.tokens;
     if (t.access_token && (!t.expires_at || t.expires_at - Date.now() > 60_000)) return t.access_token;
     if (!t.refresh_token) throw new Error("Доступ к Outlook истёк: войдите заново.");
+    const cred = (await this.o.getCredentials?.()) ?? { clientId: this.o.clientId, clientSecret: this.o.clientSecret };
     const res = await this.f(this.o.tokenUrl, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ client_id: this.o.clientId, client_secret: this.o.clientSecret, grant_type: "refresh_token", refresh_token: t.refresh_token }),
+      body: new URLSearchParams({ client_id: cred.clientId, client_secret: cred.clientSecret, grant_type: "refresh_token", refresh_token: t.refresh_token }),
       signal: AbortSignal.timeout(15_000),
     });
     if (!res.ok) throw new Error("Доступ к Outlook истёк: войдите заново.");

@@ -119,7 +119,7 @@ describe.skipIf(!dbUp)("подключения (Postgres)", () => {
   it("OAuth-модуль без настроенного приложения: «нужна настройка», подключить через форму нельзя", async () => {
     const ms = (await listCatalog(db, a)).find((c) => c.moduleId === "BUILTIN_GRAPH")!;
     expect(ms.state).toBe("needs_setup");
-    expect(ms.hint).toContain("MS_CLIENT_ID");
+    expect(ms.hint).toContain("Интеграции");
     expect(await connectModule(db, a, { module: "BUILTIN_GRAPH" })).toMatchObject({ ok: false, code: "INVALID" });
   });
 

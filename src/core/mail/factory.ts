@@ -2,6 +2,7 @@
 import type { PrismaClient } from "@/generated/prisma/client";
 import { decryptJson, encryptJson } from "../connectors/crypto";
 import { getModule } from "../connectors/modules";
+import { loadOAuthApp } from "../connectors/oauth-app";
 import { GmailMailConnector } from "./gmail";
 import { GraphMailConnector } from "./graph";
 import { ImapMailConnector, type ImapConfig } from "./imap";
@@ -36,16 +37,14 @@ export function createMailConnector(db: PrismaClient, row: { id: string; leaderI
   if (row.type === "BUILTIN_GRAPH" || row.type === "BUILTIN_GMAIL") {
     const m = getModule(row.type);
     if (!stored.tokens || m?.auth.kind !== "oauth") return null;
-    const clientId = process.env[m.auth.clientIdEnv];
-    const clientSecret = process.env[m.auth.clientSecretEnv];
-    if (!clientId || !clientSecret) return null;
     const Impl = row.type === "BUILTIN_GMAIL" ? GmailMailConnector : GraphMailConnector;
     return new Impl({
       tokens: stored.tokens,
       ownEmail: stored.account,
       tokenUrl: m.auth.tokenUrl,
-      clientId,
-      clientSecret,
+      clientId: "",
+      clientSecret: "",
+      getCredentials: () => loadOAuthApp(db, m),
       saveTokens: async (tokens) => {
         const fresh = await db.connector.findFirst({ where: { id: row.id, leaderId: row.leaderId }, select: { encryptedConfig: true } });
         const cur = (fresh && decryptJson<Stored>(fresh.encryptedConfig)) ?? stored;

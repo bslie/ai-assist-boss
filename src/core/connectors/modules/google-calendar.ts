@@ -16,6 +16,7 @@ export const googleCalendar: ConnectorManifest = {
     authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
     tokenUrl: "https://oauth2.googleapis.com/token",
     scopes: ["openid", "email", "https://www.googleapis.com/auth/calendar.events"],
+    appKey: "google",
     clientIdEnv: "GOOGLE_CLIENT_ID",
     clientSecretEnv: "GOOGLE_CLIENT_SECRET",
     extraParams: { access_type: "offline", prompt: "consent", include_granted_scopes: "true" },

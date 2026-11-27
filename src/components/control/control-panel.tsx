@@ -5,9 +5,10 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Activity, ArrowLeft, CheckCircle2, Clock, ClipboardList, KeyRound, LayoutDashboard, LogOut, Play, Search, Send, Users as UsersIcon, UserPlus, X, XCircle, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { OAuthApps } from "@/components/control/oauth-apps";
 import { cn } from "@/lib/utils";
 
-type Section = "overview" | "users" | "demo";
+type Section = "overview" | "users" | "integrations" | "demo";
 type Check = { name: string; ok: boolean; detail: string };
 type Summary = {
   viewer: { login: string; displayName: string };
@@ -28,6 +29,7 @@ type Leader = { id: string; name: string };
 const NAV: { id: Section; label: string; icon: LucideIcon }[] = [
   { id: "overview", label: "Обзор", icon: LayoutDashboard },
   { id: "users", label: "Пользователи", icon: UsersIcon },
+  { id: "integrations", label: "Интеграции", icon: KeyRound },
   { id: "demo", label: "Демо-стенд", icon: Play },
 ];
 
@@ -110,6 +112,7 @@ export function ControlPanel({ viewer, leaders }: { viewer: { displayName: strin
       <main className="mx-auto flex w-full min-w-0 max-w-[1100px] flex-1 flex-col gap-6 p-4 sm:p-8 lg:p-10">
         {section === "overview" ? <Overview /> : null}
         {section === "users" ? <Users viewerLogin={viewer.login} /> : null}
+        {section === "integrations" ? <OAuthApps /> : null}
         {section === "demo" ? <Demo leaders={leaders} /> : null}
       </main>
     </div>

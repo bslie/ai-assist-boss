@@ -15,6 +15,7 @@ export const microsoft365: ConnectorManifest = {
     authorizeUrl: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
     tokenUrl: "https://login.microsoftonline.com/common/oauth2/v2.0/token",
     scopes: ["offline_access", "Mail.ReadWrite", "Mail.Send", "Calendars.ReadWrite"],
+    appKey: "microsoft",
     clientIdEnv: "MS_CLIENT_ID",
     clientSecretEnv: "MS_CLIENT_SECRET",
     userinfoUrl: "https://graph.microsoft.com/v1.0/me?$select=mail,userPrincipalName",

@@ -44,6 +44,8 @@ export type AuthSpec =
       authorizeUrl: string;
       tokenUrl: string;
       scopes: string[];
+      /** Какое OAuth-приложение (ключи в панели управления): google | microsoft. */
+      appKey: "google" | "microsoft";
       clientIdEnv: string;
       clientSecretEnv: string;
       /** Дополнительные параметры страницы входа (у Google нужен access_type=offline, иначе не будет refresh-токена). */

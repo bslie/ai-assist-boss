@@ -116,6 +116,14 @@ model AppUser {
   createdAt    DateTime @default(now())
 }
 
+// Настройки всего приложения, не руководителя: ключи OAuth-приложений Google и Microsoft, которые задаёт ADMIN.
+// Значение шифруется (AES-GCM, CONNECTOR_SECRET) и наружу не отдаётся.
+model AppSetting {
+  key            String   @id // например, «oauth:google»
+  encryptedValue String   @db.Text
+  updatedAt      DateTime @updatedAt
+}
+
 model Employee {
   id                 String            @id @default(cuid())
   leaderId           String
