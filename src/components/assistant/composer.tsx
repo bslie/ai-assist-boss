@@ -190,15 +190,15 @@ export function Composer({ leaderId, children }: { leaderId: string; /** Под 
       )}
       {/* Подсказки видны только когда переписки нет (чат закрыт крестиком); в свёрнутом чате они скрыты. */}
       {msgs.length === 0 && (
-      <div className="no-scrollbar -mx-4 -my-1 flex gap-2 overflow-x-auto px-4 py-1 sm:mx-0 sm:h-[52px] sm:flex-wrap sm:overflow-hidden sm:px-0">
-        {suggestions === null &&
-          [88, 120, 150].map((w) => <span key={w} aria-hidden="true" style={{ width: w }} className="h-11 shrink-0 animate-pulse rounded-full border border-line-strong bg-sunken/60" />)}
-        {(suggestions ?? []).map((s) => (
+      // Пока подсказки готовятся в фоне, место под них пустое (min-h держит высоту), потом они появляются по одной.
+      <div className="no-scrollbar -mx-4 -my-1 flex min-h-[52px] gap-2 overflow-x-auto px-4 py-1 sm:mx-0 sm:h-[52px] sm:flex-wrap sm:overflow-hidden sm:px-0">
+        {(suggestions ?? []).map((s, i) => (
           <button
             key={s}
             type="button"
             onClick={() => void send(s)}
-            className="min-h-11 shrink-0 whitespace-nowrap rounded-full border border-line-strong bg-sunken/80 px-4 text-[13px] text-soft transition-all hover:-translate-y-0.5 hover:border-amber/50 hover:text-foreground active:translate-y-0"
+            style={{ "--d": `${i * 90}ms` } as React.CSSProperties}
+            className="chip-in min-h-11 shrink-0 whitespace-nowrap rounded-full border border-line-strong bg-sunken/80 px-4 text-[13px] text-soft transition-[transform,border-color,color] hover:-translate-y-0.5 hover:border-amber/50 hover:text-foreground active:translate-y-0"
           >
             {s}
           </button>
