@@ -1,17 +1,21 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarClock, Eye, EyeOff, Loader2, Mail, ShieldCheck } from "lucide-react";
+import { CalendarClock, Eye, EyeOff, Loader2, Mail, Send, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-type Props = { telegramBot: string | null; next: string };
+type Props = { telegramEnabled: boolean; next: string; initialError: string | null };
 
-declare global {
-  interface Window {
-    onTelegramLogin?: (user: Record<string, string | number>) => void;
-  }
-}
+const TELEGRAM_ERRORS: Record<string, string> = {
+  not_configured: "Вход через Telegram не настроен: задайте TELEGRAM_LOGIN_CLIENT_ID и TELEGRAM_LOGIN_CLIENT_SECRET.",
+  denied: "Вход через Telegram отменён.",
+  state: "Сессия входа устарела, попробуйте ещё раз.",
+  exchange: "Telegram не подтвердил вход, попробуйте ещё раз.",
+  signature: "Не удалось проверить ответ Telegram.",
+  expired: "Ответ Telegram устарел, попробуйте ещё раз.",
+  not_linked: "Этот Telegram-аккаунт не привязан к доступу в приложение. Обратитесь к администратору.",
+};
 
 const FIELD =
   "h-11 w-full rounded-lg border border-border bg-background px-3 text-[15px] outline-none transition-colors placeholder:text-dim/60 hover:border-line-strong focus-visible:border-amber focus-visible:ring-2 focus-visible:ring-ring/40";
@@ -22,16 +26,17 @@ const POINTS = [
   { icon: ShieldCheck, text: "Важное решаете только вы" },
 ];
 
-/** Вход: логин и пароль, либо Telegram Login Widget. Успех — переход на `next`. */
-export function LoginForm({ telegramBot, next }: Props) {
+/** Вход: логин и пароль, либо Telegram (OpenID Connect, полный редирект). Успех — переход на `next`. */
+export function LoginForm({ telegramEnabled, next, initialError }: Props) {
   const router = useRouter();
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [show, setShow] = useState(false);
   const [caps, setCaps] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const widgetRef = useRef<HTMLDivElement>(null);
+  const [error, setError] = useState<string | null>(
+    initialError ? (TELEGRAM_ERRORS[initialError] ?? "Вход через Telegram не прошёл") : null,
+  );
 
   const done = () => {
     router.replace(/^\/(?![/\\])/.test(next) ? next : "/");
@@ -52,36 +57,6 @@ export function LoginForm({ telegramBot, next }: Props) {
     const data = (await res.json().catch(() => ({}))) as { error?: string };
     setError(data.error ?? "Не удалось войти");
   }
-
-  // Виджет Telegram: скрипт подгружается один раз, колбэк шлёт подписанные данные на сервер.
-  useEffect(() => {
-    if (!telegramBot || !widgetRef.current) return;
-    window.onTelegramLogin = async (user) => {
-      setError(null);
-      const res = await fetch("/api/auth/telegram", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(user),
-      });
-      if (res.ok) return done();
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      setError(data.error ?? "Вход через Telegram не прошёл");
-    };
-    const script = document.createElement("script");
-    script.src = "https://telegram.org/js/telegram-widget.js?22";
-    script.async = true;
-    script.setAttribute("data-telegram-login", telegramBot);
-    script.setAttribute("data-size", "large");
-    script.setAttribute("data-radius", "12");
-    script.setAttribute("data-onauth", "onTelegramLogin(user)");
-    script.setAttribute("data-request-access", "write");
-    widgetRef.current.replaceChildren(script);
-    return () => {
-      delete window.onTelegramLogin;
-    };
-    // done меняется на каждом рендере, но переход нужен только один раз на монтирование
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [telegramBot]);
 
   return (
     <div data-login-card className="relative z-10 grid w-full max-w-[960px] overflow-hidden rounded-3xl border border-border bg-raised shadow-2xl shadow-black/40 md:grid-cols-[1fr_420px]">
@@ -166,17 +141,22 @@ export function LoginForm({ telegramBot, next }: Props) {
           </p>
         ) : null}
 
-        {telegramBot ? (
+        {telegramEnabled ? (
           <>
             <div className="flex items-center gap-3 text-xs text-dim" role="separator">
               <span className="h-px flex-1 bg-border" />
               или продолжить через
               <span className="h-px flex-1 bg-border" />
             </div>
-            <div ref={widgetRef} className="flex min-h-[44px] justify-center" />
+            <a
+              href={`/api/auth/telegram/start?next=${encodeURIComponent(next)}`}
+              className="flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-border bg-background text-[15px] transition-colors hover:border-line-strong focus-visible:border-amber focus-visible:ring-2 focus-visible:ring-ring/40"
+            >
+              <Send className="size-4" aria-hidden="true" /> Войти через Telegram
+            </a>
           </>
         ) : (
-          <p className="text-center text-xs text-dim">Вход через Telegram не настроен: задайте TELEGRAM_BOT_USERNAME.</p>
+          <p className="text-center text-xs text-dim">Вход через Telegram не настроен: задайте TELEGRAM_LOGIN_CLIENT_ID и TELEGRAM_LOGIN_CLIENT_SECRET.</p>
         )}
       </div>
     </div>

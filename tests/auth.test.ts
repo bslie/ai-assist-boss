@@ -1,11 +1,10 @@
-import { createHash, createHmac } from "node:crypto";
+import { createHash, generateKeyPairSync, sign as cryptoSign } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { hashPassword, verifyPassword } from "@/core/auth/password";
 import { createSessionToken, readSessionToken, SESSION_TTL_SEC } from "@/core/auth/session";
-import { type TelegramLoginPayload, verifyTelegramLogin } from "@/core/auth/telegram-login";
+import { type Jwks, createPkce, readOidcConfig, verifyIdToken } from "@/core/auth/telegram-oidc";
 
 const SECRET = "test-secret-0123456789abcdef0123456789";
-const BOT = "123456:TEST_TOKEN";
 
 let savedSecret: string | undefined;
 beforeEach(() => {
@@ -77,50 +76,52 @@ describe("session token", () => {
   });
 });
 
-describe("telegram login", () => {
-  const base = {
-    id: 424242,
-    first_name: "Иван",
-    username: "ivan",
-    auth_date: 1_800_000_000,
-  };
+describe("telegram oidc", () => {
+  const CLIENT = "9018213270";
+  const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const jwks: Jwks = { keys: [{ ...(publicKey.export({ format: "jwk" }) as object), kid: "k1" } as Jwks["keys"][number]] };
+  const now = 1_800_000_000_000;
 
-  // Подпись по правилам Telegram: ключ = SHA256(token), строка = поля через \n, отсортированные по ключу.
-  function signed(fields: Record<string, string | number>, nowSec: number): TelegramLoginPayload {
-    const check = Object.entries(fields)
-      .map(([k, v]) => [k, String(v)] as const)
-      .sort(([a], [b]) => (a < b ? -1 : 1))
-      .map(([k, v]) => `${k}=${v}`)
-      .join("\n");
-    const hash = createHmac("sha256", createHash("sha256").update(BOT).digest()).update(check).digest("hex");
-    return { ...(fields as unknown as TelegramLoginPayload), hash, auth_date: Number(fields.auth_date ?? nowSec) };
+  function token(claims: Record<string, unknown>, key = privateKey): string {
+    const h = Buffer.from(JSON.stringify({ alg: "RS256", kid: "k1" })).toString("base64url");
+    const p = Buffer.from(JSON.stringify(claims)).toString("base64url");
+    const sig = cryptoSign("sha256", Buffer.from(`${h}.${p}`), key).toString("base64url");
+    return `${h}.${p}.${sig}`;
   }
+  const ok = { iss: "https://oauth.telegram.org", aud: CLIENT, exp: now / 1000 + 3600, id: 424242, name: "Иван" };
 
-  it("принимает корректную подпись и возвращает telegramId", () => {
-    const now = base.auth_date * 1000 + 60_000;
-    const payload = signed(base, base.auth_date);
-    expect(verifyTelegramLogin(payload, BOT, now)).toEqual({ ok: true, telegramId: "424242" });
+  it("принимает корректный токен и отдаёт telegramId", () => {
+    expect(verifyIdToken(token(ok), jwks, CLIENT, now)).toMatchObject({ ok: true, telegramId: "424242" });
   });
 
-  it("отвергает изменённые данные", () => {
-    const payload = signed(base, base.auth_date);
-    const tampered = { ...payload, id: 999 };
-    expect(verifyTelegramLogin(tampered, BOT, base.auth_date * 1000)).toEqual({ ok: false, reason: "bad_signature" });
+  it("отвергает чужую подпись", () => {
+    const other = generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey;
+    expect(verifyIdToken(token(ok, other), jwks, CLIENT, now)).toEqual({ ok: false, reason: "bad_signature" });
   });
 
-  it("отвергает подпись, сделанную другим ботом", () => {
-    const payload = signed(base, base.auth_date);
-    expect(verifyTelegramLogin(payload, "999:OTHER", base.auth_date * 1000)).toEqual({ ok: false, reason: "bad_signature" });
+  it("отвергает подмену payload", () => {
+    const [h, , s] = token(ok).split(".");
+    const forged = Buffer.from(JSON.stringify({ ...ok, id: 1 })).toString("base64url");
+    expect(verifyIdToken(`${h}.${forged}.${s}`, jwks, CLIENT, now)).toEqual({ ok: false, reason: "bad_signature" });
   });
 
-  it("отвергает устаревший auth_date", () => {
-    const payload = signed(base, base.auth_date);
-    const now = (base.auth_date + 2 * 24 * 60 * 60) * 1000;
-    expect(verifyTelegramLogin(payload, BOT, now)).toEqual({ ok: false, reason: "expired" });
+  it("отвергает чужой aud, чужой iss и истёкший токен", () => {
+    expect(verifyIdToken(token({ ...ok, aud: "1" }), jwks, CLIENT, now)).toEqual({ ok: false, reason: "bad_claims" });
+    expect(verifyIdToken(token({ ...ok, iss: "https://evil.example" }), jwks, CLIENT, now)).toEqual({ ok: false, reason: "bad_claims" });
+    expect(verifyIdToken(token({ ...ok, exp: now / 1000 - 3600 }), jwks, CLIENT, now)).toEqual({ ok: false, reason: "expired" });
   });
 
-  it("без токена бота вход отключён", () => {
-    const payload = signed(base, base.auth_date);
-    expect(verifyTelegramLogin(payload, undefined, base.auth_date * 1000)).toEqual({ ok: false, reason: "no_token" });
+  it("отвергает alg=none и мусор", () => {
+    const h = Buffer.from(JSON.stringify({ alg: "none" })).toString("base64url");
+    const p = Buffer.from(JSON.stringify(ok)).toString("base64url");
+    expect(verifyIdToken(`${h}.${p}.`, jwks, CLIENT, now)).toEqual({ ok: false, reason: "bad_alg" });
+    expect(verifyIdToken("abc", jwks, CLIENT, now)).toEqual({ ok: false, reason: "malformed" });
+  });
+
+  it("PKCE: challenge = SHA256(verifier); без настроек вход выключен", () => {
+    const { verifier, challenge } = createPkce();
+    expect(challenge).toBe(createHash("sha256").update(verifier).digest("base64url"));
+    expect(readOidcConfig({} as NodeJS.ProcessEnv)).toBeNull();
+    expect(readOidcConfig({ TELEGRAM_LOGIN_CLIENT_ID: "1" } as unknown as NodeJS.ProcessEnv)).toBeNull();
   });
 });
