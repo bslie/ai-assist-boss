@@ -66,6 +66,8 @@ export interface DayItem {
   tone: Tone;
   /** Что стоит за пунктом: раскрывается по клику. */
   details: string[];
+  /** Встреча, на которую можно отправить ИИ-помощника (ещё не закончилась). */
+  join?: { meetingId: string; url: string; botActive: boolean };
 }
 
 export interface TodayData {
@@ -202,6 +204,7 @@ export async function getToday(db: PrismaClient, leaderId: string): Promise<Toda
             : "Нужно ваше личное участие.",
         ...(m.meetingUrl ? [m.meetingUrl] : []),
       ],
+      ...(m.endAt > now ? { join: { meetingId: m.id, url: m.meetingUrl ?? "", botActive: m.recallBotId !== null } } : {}),
     })),
     ...tasks.filter(overdue).map<DayItem>((t) => ({
       time: "срок прошёл",

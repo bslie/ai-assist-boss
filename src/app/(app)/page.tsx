@@ -103,7 +103,7 @@ async function Today() {
             {today.day.length === 0 ? (
               <div className="pt-3.5 text-soft">На сегодня встреч нет.</div>
             ) : (
-              <DayList items={today.day} />
+              <DayList items={today.day} leaderId={leader.id} />
             )}
           </div>
           <div className="rise flex flex-col gap-1.5 border-t border-line pt-6" style={{ "--d": "600ms" } as CSSProperties}>
