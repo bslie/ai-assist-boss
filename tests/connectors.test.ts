@@ -150,7 +150,7 @@ describe.skipIf(!dbUp)("подключения (Postgres)", () => {
     expect(await updateConnector(db, a, id, { permissions: { "net.hack": "AUTO" } })).toMatchObject({ ok: false, code: "INVALID" });
 
     // Потолок: у Recall запись разговоров не может стать AUTO.
-    const rid = await connectModule(db, a, { module: "BUILTIN_RECALL", values: { apiKey: "key", region: "eu-central-1" } });
+    const rid = await connectModule(db, a, { module: "BUILTIN_RECALL", values: { apiKey: "key", region: "eu-central-1", appUrl: "https://boss.example.test" } }, { verifyMail: false });
     if (!rid.ok) throw new Error(rid.message);
     expect(await updateConnector(db, a, rid.value.id, { permissions: { "meeting.join_bot": "AUTO" } })).toMatchObject({ ok: false, code: "INVALID" });
     expect(await updateConnector(db, a, rid.value.id, { permissions: { "meeting.join_bot": "DENY" } })).toMatchObject({ ok: true });

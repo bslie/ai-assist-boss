@@ -1,6 +1,6 @@
 /**
  * Recall.ai (SPEC 4.5.3): бот заходит на созвон, камера бота — публичная страница аватара, после встречи отдаёт транскрипт.
- * Доступы: подключение BUILTIN_RECALL руководителя, иначе RECALL_API_KEY / RECALL_REGION из env.
+ * Доступы и настройки (ключ, регион, адрес приложения, цена часа) — только из подключения BUILTIN_RECALL руководителя.
  * Внешний вызов идёт только через Policy Gate: запрет `meeting.join_bot` в правах подключения останавливает запуск.
  * Режим AVATAR у встречи — постоянное согласие руководителя (правило профиля), поэтому APPROVE по правам не блокирует.
  */
@@ -11,6 +11,7 @@ import { clock } from "../clock";
 import { decryptJson } from "../connectors/crypto";
 import { evaluate, getConnectorToolPermission, loadGateLeader, logVerdict } from "../policy-gate";
 import { recallCostRub, recordServiceUsage } from "../usage";
+import { parsePricePerHour } from "../connectors/verify";
 import { detectPlatform, MeetingUrlSchema } from "./platform";
 
 const RECALL_TYPE = "BUILTIN_RECALL";
@@ -19,28 +20,32 @@ const JOIN_LEAD_MS = 60_000; // SPEC 4.5.3: за 1 минуту до начал�
 export interface RecallAuth {
   apiKey: string;
   region: string;
-  connectorId: string | null;
+  connectorId: string;
+  /** Публичный адрес приложения: по нему Recall открывает страницу аватара. */
+  appUrl: string;
+  /** Цена часа бота для учёта стоимости; 0 — не задана. */
+  pricePerHourRub: number;
 }
 
+/** Все настройки Recall задаёт пользователь в «Подключениях»; переменных окружения для интеграции нет. */
 export async function loadRecallAuth(db: PrismaClient, leaderId: string): Promise<RecallAuth | null> {
   const row = await db.connector.findFirst({ where: { leaderId, type: RECALL_TYPE, isActive: true } });
-  if (row) {
-    const stored = decryptJson<{ values?: Record<string, string> }>(row.encryptedConfig);
-    const apiKey = stored?.values?.apiKey;
-    if (apiKey) return { apiKey, region: stored?.values?.region || "us-east-1", connectorId: row.id };
-  }
-  const apiKey = process.env.RECALL_API_KEY;
-  return apiKey ? { apiKey, region: process.env.RECALL_REGION ?? "us-east-1", connectorId: null } : null;
+  if (!row) return null;
+  const values = decryptJson<{ values?: Record<string, string> }>(row.encryptedConfig)?.values;
+  if (!values?.apiKey) return null;
+  return {
+    apiKey: values.apiKey,
+    region: values.region || "us-east-1",
+    connectorId: row.id,
+    appUrl: (values.appUrl || process.env.APP_URL || "http://localhost:3000").replace(/\/+$/, ""),
+    pricePerHourRub: parsePricePerHour(values.pricePerHourRub),
+  };
 }
 
 const base = (a: RecallAuth) => `https://${a.region}.recall.ai/api/v1`;
 const headers = (a: RecallAuth) => ({ Authorization: `Token ${a.apiKey}`, "Content-Type": "application/json" });
 
 const BotSchema = z.object({ id: z.string().min(1) }).passthrough();
-
-export function appUrl(): string {
-  return (process.env.APP_URL ?? "http://localhost:3000").replace(/\/$/, "");
-}
 
 /** Бот представляется в имени участника: агент всегда называет себя ИИ-помощником. */
 export async function createAvatarBot(auth: RecallAuth, args: { meetingUrl: string; leaderName: string; avatarToken: string }): Promise<string> {
@@ -50,9 +55,8 @@ export async function createAvatarBot(auth: RecallAuth, args: { meetingUrl: stri
     body: JSON.stringify({
       meeting_url: args.meetingUrl,
       bot_name: `ИИ-помощник ${args.leaderName}`,
-      output_media: { camera: { kind: "webpage", config: { url: `${appUrl()}/avatar/${args.avatarToken}?autoplay=1` } } },
+      output_media: { camera: { kind: "webpage", config: { url: `${auth.appUrl}/avatar/${args.avatarToken}?autoplay=1` } } },
       recording_config: { transcript: { provider: { recallai_streaming: {} } } },
-      ...(process.env.RECALL_WEBHOOK_URL ? { webhook_url: process.env.RECALL_WEBHOOK_URL } : {}),
     }),
   });
   if (!res.ok) throw new Error(`Recall: HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
@@ -95,9 +99,9 @@ export async function launchAvatarBot(db: PrismaClient, leaderId: string, meetin
     return { status: "skipped", reason: `${platform.label}: бот Recall туда не заходит — пришлите транскрипт вручную` };
   }
   const auth = await loadRecallAuth(db, leaderId);
-  if (!auth) return { status: "skipped", reason: "Recall не подключён" };
+  if (!auth) return { status: "skipped", reason: "Recall не подключён: откройте «Подключения» → «Запись встреч (Recall.ai)» и укажите ключ" };
 
-  const perm = auth.connectorId ? await getConnectorToolPermission(db, leaderId, auth.connectorId, "meeting.join_bot") : null;
+  const perm = await getConnectorToolPermission(db, leaderId, auth.connectorId, "meeting.join_bot");
   const verdict = evaluate("meeting.join_bot", { leader: await loadGateLeader(db, leaderId), toolPermission: perm === "DENY" ? "DENY" : "AUTO", isOutbound: true, approvedByLeader: true });
   await logVerdict(db, leaderId, "meeting.join_bot", verdict, { metadata: { meetingId, standingConsent: "participationMode=AVATAR" } });
   if (verdict.verdict === "DENY") return { status: "skipped", reason: "запуск бота запрещён в правах подключения" };
@@ -113,7 +117,7 @@ export async function launchAvatarBot(db: PrismaClient, leaderId: string, meetin
     });
     // Recall считает минуты бота: пишем плановую длительность встречи (SPEC инвариант 8).
     const seconds = Math.max(0, (meeting.endAt.getTime() - meeting.startAt.getTime()) / 1000);
-    await recordServiceUsage(db, { leaderId, pipeline: "AVATAR_SESSION", provider: "recall.ai", model: "bot", audioSeconds: seconds, costRub: recallCostRub(seconds) }).catch(() => {});
+    await recordServiceUsage(db, { leaderId, pipeline: "AVATAR_SESSION", provider: "recall.ai", model: "bot", audioSeconds: seconds, costRub: recallCostRub(seconds, { RECALL_PRICE_RUB_PER_HOUR: String(auth.pricePerHourRub) }) }).catch(() => {});
     return { status: "launched", botId };
   } catch (e) {
     await db.meeting.update({ where: { id: meetingId }, data: { recallBotId: null } });

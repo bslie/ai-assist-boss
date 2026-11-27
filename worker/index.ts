@@ -17,6 +17,7 @@ import { activeMailConnectors } from "@/core/mail/poll";
 import { pollWithPipeline } from "@/core/mail/pipeline";
 import { prepareAgenda } from "@/core/meetings/agenda";
 import { dueAvatarMeetings, launchAvatarBot } from "@/core/meetings/recall";
+import { collectRecallProtocol, dueTranscriptMeetings } from "@/core/meetings/transcript-poll";
 import { dueDossiers, sendDossier } from "@/core/meetings/dossier";
 import { relayEvent } from "@/core/telegram/relay";
 import type { StateStore } from "@/core/telegram/types";
@@ -150,6 +151,25 @@ async function main() {
   void runAvatarCheck();
   const avatarTimer = setInterval(runAvatarCheck, 120_000);
 
+  // Протокол после встречи с ботом: транскрипт забираем у Recall сами, вебхук настраивать не нужно.
+  let collecting = false;
+  const runTranscriptCheck = async () => {
+    if (collecting || !llm) return;
+    collecting = true;
+    try {
+      for (const m of await dueTranscriptMeetings(db)) {
+        const r = await collectRecallProtocol(db, llm, m.leaderId, m.id);
+        if (r.status === "created") log(`протокол ${m.id}: карточка создана`);
+      }
+    } catch (e) {
+      log("сбор протоколов не удался:", (e as Error).message);
+    } finally {
+      collecting = false;
+    }
+  };
+  void runTranscriptCheck();
+  const transcriptTimer = setInterval(runTranscriptCheck, 60_000);
+
   if (bot) {
     void bot.start({ onStart: (me) => log(`бот @${me.username} запущен`) });
   }
@@ -159,6 +179,7 @@ async function main() {
     clearInterval(timer);
     clearInterval(mailTimer);
     clearInterval(avatarTimer);
+    clearInterval(transcriptTimer);
     await bot?.stop();
     await unsubscribe();
     await worker.close();

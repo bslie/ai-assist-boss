@@ -41,12 +41,12 @@ npm run worker                       # Telegram, рутины, почта (от�
 | `DATABASE_URL`, `REDIS_URL` | Postgres и Redis (Redis — демо-часы, шина событий, блокировки) |
 | `AUTH_SECRET`, `CONNECTOR_SECRET` | подпись сессий и шифрование доступов подключений (`openssl rand -hex 32`) |
 | `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` | любой OpenAI-совместимый эндпоинт (GigaChat, YandexGPT, vLLM, Ollama меняются только этим). Без `LLM_BASE_URL` модель отвечает из кэша |
-| `LLM_PRICE_INPUT_RUB_PER_M`, `LLM_PRICE_OUTPUT_RUB_PER_M`, `RECALL_PRICE_RUB_PER_HOUR` | цены для расчёта стоимости запроса; не заданы → в учёте токены, стоимость 0 |
+| `LLM_PRICE_INPUT_RUB_PER_M`, `LLM_PRICE_OUTPUT_RUB_PER_M` | цены для расчёта стоимости запроса; не заданы → в учёте токены, стоимость 0 |
 | `STAFF_HOUR_RATE_RUB` | ставка часа сотрудника для окупаемости: затраты на ИИ против освобождённого времени (профиль может переопределить: `savedMinutesConfig.hourRateRub`) |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `TELEGRAM_BIND_KEY` | бот и привязка чатов |
-| `APP_URL` | публичный адрес (страница аватара для Recall, ссылки) |
+| `APP_URL` | публичный адрес (ссылки в письмах с поручениями) |
 | `APP_DEMO_START`, `APP_CLOCK_MODE=real` | демо-время (по умолчанию 07.12.2026 08:30 МСК) или реальное |
-| `RECALL_API_KEY`, `RECALL_WEBHOOK_SECRET`, `DEMO_MEETING_URL` | аватар на встрече в Zoom |
+| `DEMO_MEETING_URL` | ссылка на встречу для демо-встреч с аватаром. Recall настраивается в «Подключения», переменных окружения нет |
 | `DATASET_SMTP_*`, `DATASET_TARGET_EMAIL`, `MAIL_DATASET_SENDER` | отправка писем датасета в реальный ящик |
 
 ## Сквозной сценарий демо

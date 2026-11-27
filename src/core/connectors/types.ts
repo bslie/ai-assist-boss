@@ -28,8 +28,10 @@ export interface CredentialField {
   secret: boolean;
   placeholder?: string;
   help?: string;
-  /** Значение по умолчанию (например, imap.yandex.ru). */
+  /** Значение по умолчанию (например, imap.yandex.ru). `{origin}` — адрес, по которому открыто приложение (подставляет форма). */
   initial?: string;
+  /** Необязательное поле: можно оставить пустым. */
+  optional?: boolean;
 }
 
 export type AuthSpec =
@@ -65,6 +67,8 @@ export interface ConnectorManifest {
   letter: string;
   color: string;
   auth: AuthSpec;
+  /** Пошаговая инструкция «как подключить»: показывается над полями доступа. */
+  setup?: string[];
   tools: ConnectorTool[];
   /** soon — виден в каталоге, подключить нельзя. */
   status: "ready" | "soon";

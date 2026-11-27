@@ -52,7 +52,14 @@ function Body({ item, leaderId, api, onClose, onChanged }: Props & { item: Catal
   const connected = item.connectorId !== null;
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const [values, setValues] = useState<Record<string, string>>(item.values);
+  // `{origin}` в начальном значении — адрес, по которому открыто приложение (например, публичный адрес для Recall).
+  const [values, setValues] = useState<Record<string, string>>(() => {
+    const out = { ...item.values };
+    for (const f of item.auth.fields) {
+      if (!f.secret && !out[f.key] && f.initial?.includes("{origin}")) out[f.key] = f.initial.replace("{origin}", window.location.origin);
+    }
+    return out;
+  });
   const [secrets, setSecrets] = useState<Record<string, string>>({});
   const [mcpUrl, setMcpUrl] = useState(item.mcpUrl ?? "");
   const [token, setToken] = useState("");
@@ -174,12 +181,25 @@ function Body({ item, leaderId, api, onClose, onChanged }: Props & { item: Catal
 
         {item.auth.kind === "credentials" && (
           <section className="flex flex-col gap-3.5">
+            {item.setup.length > 0 && !connected && (
+              <div className="rounded-2xl border border-line bg-ink px-4 py-3.5">
+                <h3 className="mb-2 text-[13px] font-medium text-soft">Как подключить</h3>
+                <ol className="flex list-decimal flex-col gap-1.5 pl-5 text-[13px] text-dim">
+                  {item.setup.map((s) => (
+                    <li key={s}>{s}</li>
+                  ))}
+                </ol>
+              </div>
+            )}
             <h3 className="text-xs font-medium uppercase tracking-[0.08em] text-dim">Доступ</h3>
             {item.auth.fields.map((f) => {
               const filled = f.secret && item.filledSecrets.includes(f.key);
               return (
                 <label key={f.key} className="flex flex-col gap-1.5">
-                  <span className="text-[13px] text-soft">{f.label}</span>
+                  <span className="text-[13px] text-soft">
+                    {f.label}
+                    {f.optional && <span className="text-dim"> · необязательно</span>}
+                  </span>
                   <input
                     type={f.secret ? "password" : "text"}
                     autoComplete="off"
@@ -206,7 +226,7 @@ function Body({ item, leaderId, api, onClose, onChanged }: Props & { item: Catal
                   : run(() => api<{ id: string }>(`/api/connectors?${q}`, { method: "POST", body: { module: item.moduleId, values: all } }), "Подключено", (d) => onChanged(d.id));
               }}
             >
-              {busy ? "Проверяю…" : connected ? "Сохранить доступы" : "Подключить"}
+              {busy ? "Проверяю доступы…" : connected ? "Проверить и сохранить" : "Проверить и подключить"}
             </Button>
           </section>
         )}

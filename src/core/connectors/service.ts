@@ -8,6 +8,7 @@ import type { Prisma, PrismaClient } from "@/generated/prisma/client";
 import { decryptJson, encryptJson, SecretsNotConfigured, secretsConfigured } from "./crypto";
 import { isMailType, verifyMailCredentials } from "../mail/factory";
 import { probeMcp, type McpTool } from "./mcp";
+import { verifyConnectorCredentials } from "./verify";
 import { getModule, MODULES } from "./modules";
 import { PermSchema, type ConnectorManifest, type ConnectorTool, type Perm } from "./types";
 
@@ -39,7 +40,9 @@ export interface CatalogItem {
   state: ConnectorState;
   /** Что именно нужно сделать, если подключить пока нельзя. */
   hint: string | null;
-  auth: { kind: "none" | "credentials" | "oauth" | "mcp"; fields: { key: string; label: string; secret: boolean; placeholder?: string; help?: string; initial?: string }[] };
+  auth: { kind: "none" | "credentials" | "oauth" | "mcp"; fields: { key: string; label: string; secret: boolean; placeholder?: string; help?: string; initial?: string; optional?: boolean }[] };
+  /** Инструкция «как подключить» (из манифеста). */
+  setup: string[];
   /** Несекретные значения полей (адрес ящика, сервер): для редактирования. */
   values: Record<string, string>;
   /** Какие секретные поля уже заполнены (сами значения не отдаём). */
@@ -104,6 +107,9 @@ const envReady = (names: string[] = []) => names.every((n) => Boolean(process.en
 
 export const oauthReady = (m: ConnectorManifest) => m.auth.kind === "oauth" && Boolean(process.env[m.auth.clientIdEnv] && process.env[m.auth.clientSecretEnv]);
 
+/** `{origin}` подставляет только браузер: на сервере такого значения нет, поле считается пустым. */
+const initialOf = (f: { initial?: string }) => (f.initial?.includes("{origin}") ? "" : (f.initial ?? ""));
+
 function itemFor(m: ConnectorManifest, row: Row | null): CatalogItem {
   const stored = row ? decryptJson<Stored>(row.encryptedConfig) : null;
   const fields = m.auth.kind === "credentials" ? m.auth.fields : [];
@@ -113,7 +119,7 @@ function itemFor(m: ConnectorManifest, row: Row | null): CatalogItem {
     const v = stored?.values?.[f.key];
     if (f.secret) {
       if (v) filled.push(f.key);
-    } else values[f.key] = v ?? f.initial ?? "";
+    } else values[f.key] = v ?? initialOf(f);
   }
 
   let state: ConnectorState;
@@ -156,8 +162,9 @@ function itemFor(m: ConnectorManifest, row: Row | null): CatalogItem {
     hint,
     auth: {
       kind: m.auth.kind,
-      fields: fields.map((f) => ({ key: f.key, label: f.label, secret: f.secret, placeholder: f.placeholder, help: f.help, initial: f.initial })),
+      fields: fields.map((f) => ({ key: f.key, label: f.label, secret: f.secret, placeholder: f.placeholder, help: f.help, initial: f.initial, optional: f.optional })),
     },
+    setup: m.setup ?? [],
     values,
     filledSecrets: filled,
     mcpUrl: row?.mcpUrl ?? null,
@@ -219,13 +226,14 @@ export async function connectModule(db: PrismaClient, leaderId: string, input: C
   } else if (m.auth.kind === "credentials") {
     const values: Record<string, string> = {};
     for (const f of m.auth.fields) {
-      const v = (input.values?.[f.key] ?? f.initial ?? "").trim();
-      if (!v) return fail("INVALID", `Заполните поле «${f.label}»`);
-      values[f.key] = v;
+      const v = (input.values?.[f.key] ?? initialOf(f)).trim();
+      if (!v && !f.optional) return fail("INVALID", `Заполните поле «${f.label}»`);
+      if (v) values[f.key] = v;
     }
     if (opts.verifyMail !== false) {
       try {
         await verifyMailCredentials(m.id, values);
+        await verifyConnectorCredentials(m.id, values);
       } catch (e) {
         return fail("INVALID", (e as Error).message);
       }
@@ -294,7 +302,7 @@ export const UpdateSchema = z.object({
 });
 export type UpdateInput = z.infer<typeof UpdateSchema>;
 
-export async function updateConnector(db: PrismaClient, leaderId: string, id: string, input: UpdateInput): Promise<Result<null>> {
+export async function updateConnector(db: PrismaClient, leaderId: string, id: string, input: UpdateInput, opts: { /** false — не ходить во внешний сервис проверять доступы (тесты). */ verify?: boolean } = {}): Promise<Result<null>> {
   const row = await db.connector.findFirst({ where: { id, leaderId } });
   const m = row && getModule(row.type);
   if (!row || !m) return fail("NOT_FOUND", "Подключение не найдено");
@@ -309,7 +317,17 @@ export async function updateConnector(db: PrismaClient, leaderId: string, id: st
     for (const f of m.auth.fields) {
       const v = input.values[f.key]?.trim();
       if (v) merged[f.key] = v;
-      else if (!f.secret && f.key in input.values) return fail("INVALID", `Поле «${f.label}» не может быть пустым`);
+      else if (!f.secret && f.key in input.values) {
+        if (!f.optional) return fail("INVALID", `Поле «${f.label}» не может быть пустым`);
+        delete merged[f.key];
+      }
+    }
+    if (opts.verify !== false) {
+      try {
+        await verifyConnectorCredentials(m.id, merged);
+      } catch (e) {
+        return fail("INVALID", (e as Error).message);
+      }
     }
     try {
       data.encryptedConfig = encryptJson({ ...stored, values: merged, account: merged.email ?? stored?.account } satisfies Stored);

@@ -11,6 +11,8 @@
 - Run `npm test` after changing `src/core`. `tests/eval-inbox.test.ts` and `tests/risk-signals.test.ts` must stay green.
 - Commit small and often; the last commit before 28.11.2026 10:00 MSK is what gets graded.
 
+- Integrations (Recall, mail, Telegram, MCP…) are configured by the user in «Подключения»; no env vars for them. Env is only for deployment infra and OAuth app credentials (Google Workspace, Microsoft 365). Every new integration: manifest fields + `setup` steps + credential check on save.
+
 # Deviations from SPEC.md (deliberate, for the 40-hour deadline)
 - Single npm package instead of pnpm + Turborepo monorepo. Mapping of SPEC paths:
   - `packages/core/*` → `src/core/*`
