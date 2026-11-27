@@ -75,25 +75,26 @@ export function NewTask({ leaderId, people }: { leaderId: string; people: { id: 
     }
   }
 
-  const input = "min-h-11 rounded-full border border-line bg-raised px-5 outline-none placeholder:text-dim";
+  // w-full + min-w-0: select и datetime-local иначе раздвигают колонку шире экрана. 16px на телефоне: iOS не приближает страницу при фокусе.
+  const input = "min-h-11 w-full min-w-0 rounded-full border border-line bg-raised px-5 text-[16px] outline-none placeholder:text-dim sm:text-[15px]";
   return (
     <section aria-labelledby="nt" className="flex flex-col gap-4">
       <h2 id="nt" className="font-serif text-2xl font-medium">Новое поручение</h2>
-      <form onSubmit={create} className="grid gap-3 sm:grid-cols-2">
+      <form onSubmit={create} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <input aria-label="Что нужно сделать" required minLength={3} className={`${input} sm:col-span-2`} placeholder="Что нужно сделать" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
-        <textarea aria-label="Подробности" className="min-h-24 rounded-[18px] border border-line bg-raised p-4 outline-none placeholder:text-dim sm:col-span-2" placeholder="Подробности (по желанию): критерий готовности сформулирую сама" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+        <textarea aria-label="Подробности" className="min-h-24 w-full min-w-0 rounded-[18px] border border-line bg-raised p-4 text-[16px] outline-none placeholder:text-dim sm:col-span-2 sm:text-[15px]" placeholder="Подробности (по желанию): критерий готовности сформулирую сама" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
         <select aria-label="Исполнитель" required className={input} value={form.assigneeId} onChange={(e) => setForm({ ...form, assigneeId: e.target.value })}>
           {people.map((p) => (
             <option key={p.id} value={p.id}>{p.name}, {p.position}</option>
           ))}
         </select>
         <input aria-label="Срок" required type="datetime-local" className={input} value={form.dueAt} onChange={(e) => setForm({ ...form, dueAt: e.target.value })} />
-        <label className="flex min-h-11 items-center gap-2 text-soft sm:col-span-2">
-          <input type="checkbox" checked={form.isClientCommitment} onChange={(e) => setForm({ ...form, isClientCommitment: e.target.checked })} />
+        <label className="flex min-h-11 items-center gap-3 py-1 text-soft sm:col-span-2">
+          <input type="checkbox" className="size-5 shrink-0 accent-amber" checked={form.isClientCommitment} onChange={(e) => setForm({ ...form, isClientCommitment: e.target.checked })} />
           Обязательство перед клиентом (перенос срока только с вашего согласия)
         </label>
         <div className="sm:col-span-2">
-          <Button type="submit" className="h-11 rounded-full bg-amber px-6 font-semibold text-[#1b1305] hover:bg-amber/90" disabled={busy}>Поставить задачу</Button>
+          <Button type="submit" className="h-11 w-full rounded-full bg-amber px-6 font-semibold sm:w-auto text-[#1b1305] hover:bg-amber/90" disabled={busy}>Поставить задачу</Button>
         </div>
       </form>
       {note && (
