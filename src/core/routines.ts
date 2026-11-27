@@ -5,6 +5,7 @@
 import { CronExpressionParser } from "cron-parser";
 import { z } from "zod";
 import type { PrismaClient } from "@/generated/prisma/client";
+import { describeSchedule, parseSchedule } from "./routine-schedule";
 
 export const PatchRoutineSchema = z
   .object({
@@ -42,12 +43,8 @@ export async function patchRoutine(db: PrismaClient, leaderId: string, input: Pa
   return res.count === 0 ? { ok: false, code: "NOT_FOUND", message: "Рутина не найдена" } : { ok: true };
 }
 
-const DOW: Record<string, string> = { "1-5": "по будням", "*": "каждый день", "1": "по понедельникам", "5": "по пятницам" };
-
 /** «30 8 * * 1-5» → «по будням в 08:30»; сложные выражения показываем как есть. */
 export function describeCron(expr: string): string {
-  const [min, hour, dom, mon, dow] = expr.split(" ");
-  if (/^\d+$/.test(min) && /^\d+$/.test(hour) && dom === "*" && mon === "*" && DOW[dow]) return `${DOW[dow]} в ${hour.padStart(2, "0")}:${min.padStart(2, "0")}`;
-  if (min.startsWith("*/") && hour === "*" && dom === "*" && mon === "*" && dow === "*") return `каждые ${min.slice(2)} мин`;
-  return expr;
+  const parsed = parseSchedule(expr);
+  return parsed ? describeSchedule(parsed) : expr;
 }
