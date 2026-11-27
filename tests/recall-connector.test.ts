@@ -45,6 +45,10 @@ describe("адрес приложения берётся из запроса", (
     expect(requestOrigin(new Request("http://127.0.0.1:3000/api/x", { headers: { "x-forwarded-proto": "https", "x-forwarded-host": "boss.example.test" } }))).toBe("https://boss.example.test");
     expect(requestOrigin(new Request("http://localhost:3000/api/x"))).toBe("http://localhost:3000");
     expect(requestOrigin(new Request("http://localhost:3000/api/x", { headers: { "x-forwarded-proto": "javascript" } }))).toBeUndefined();
+    // Прокси без X-Forwarded-Proto: для публичного имени считаем https, иначе Google вернёт redirect_uri_mismatch.
+    expect(requestOrigin(new Request("http://bench.example.test/api/x", { headers: { host: "bench.example.test" } }))).toBe("https://bench.example.test");
+    expect(requestOrigin(new Request("http://10.0.0.5:3000/api/x"))).toBe("http://10.0.0.5:3000");
+    expect(requestOrigin(new Request("http://bench.example.test/api/x", { headers: { "x-forwarded-proto": "http" } }))).toBe("http://bench.example.test");
   });
 });
 

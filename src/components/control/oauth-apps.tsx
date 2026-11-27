@@ -8,11 +8,11 @@ type App = { key: string; label: string; consoleUrl: string; configured: boolean
 
 const INPUT = "h-10 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
-async function call(method: string, body?: unknown): Promise<{ ok: true; apps: App[] } | { ok: false; error: string }> {
+async function call(method: string, body?: unknown): Promise<{ ok: true; apps: App[]; redirectUri?: string } | { ok: false; error: string }> {
   try {
     const res = await fetch("/api/control/oauth-apps", { method, headers: { "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined, cache: "no-store" });
-    const data = (await res.json().catch(() => ({}))) as { apps?: App[]; error?: string };
-    return res.ok && data.apps ? { ok: true, apps: data.apps } : { ok: false, error: data.error ?? `Ошибка ${res.status}` };
+    const data = (await res.json().catch(() => ({}))) as { apps?: App[]; redirectUri?: string; error?: string };
+    return res.ok && data.apps ? { ok: true, apps: data.apps, redirectUri: data.redirectUri } : { ok: false, error: data.error ?? `Ошибка ${res.status}` };
   } catch {
     return { ok: false, error: "Нет связи с сервером" };
   }
@@ -21,14 +21,17 @@ async function call(method: string, body?: unknown): Promise<{ ok: true; apps: A
 /** Ключи OAuth-приложений Google и Microsoft: секрет уходит на сервер и шифруется, обратно не возвращается. */
 export function OAuthApps() {
   const [apps, setApps] = useState<App[] | null>(null);
+  const [redirectUri, setRedirectUri] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
     call("GET").then((r) => {
       if (!alive) return;
-      if (r.ok) setApps(r.apps);
-      else setError(r.error);
+      if (r.ok) {
+        setApps(r.apps);
+        setRedirectUri(r.redirectUri ?? "");
+      } else setError(r.error);
     });
     return () => {
       alive = false;
@@ -46,18 +49,17 @@ export function OAuthApps() {
       {error && <p role="alert" className="text-sm text-coral">{error}</p>}
       {!apps && !error && <p className="text-sm text-dim">Загружаю…</p>}
       {apps?.map((a) => (
-        <AppForm key={a.key} app={a} onChange={setApps} />
+        <AppForm key={a.key} app={a} redirectUri={redirectUri} onChange={setApps} />
       ))}
     </div>
   );
 }
 
-function AppForm({ app, onChange }: { app: App; onChange: (a: App[]) => void }) {
+function AppForm({ app, redirectUri, onChange }: { app: App; redirectUri: string; onChange: (a: App[]) => void }) {
   const [clientId, setClientId] = useState("");
   const [secret, setSecret] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const redirect = typeof window === "undefined" ? "" : `${window.location.origin}/api/connectors/oauth/callback`;
 
   async function save() {
     setBusy(true);
@@ -101,8 +103,8 @@ function AppForm({ app, onChange }: { app: App; onChange: (a: App[]) => void }) 
       </div>
 
       <div className="flex flex-col gap-1 text-xs text-dim">
-        Redirect URI для кабинета сервиса (скопируйте как есть):
-        <code className="rounded-lg bg-background px-3 py-2 text-[13px] text-soft [overflow-wrap:anywhere]">{redirect}</code>
+        Redirect URI, который приложение отправляет сервису. Запишите в кабинете в точности его (с https и без слэша в конце):
+        <code className="rounded-lg bg-background px-3 py-2 text-[13px] text-soft [overflow-wrap:anywhere]">{redirectUri || "…"}</code>
       </div>
 
       <form

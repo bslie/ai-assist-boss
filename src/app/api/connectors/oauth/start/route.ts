@@ -14,6 +14,7 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   // За прокси req.url указывает на внутренний адрес: Redirect URI должен совпасть с тем, что записан в кабинете сервиса.
   const origin = requestOrigin(req) ?? url.origin;
+  const redirectUri = `${origin}/api/connectors/oauth/callback`;
   const m = getModule(url.searchParams.get("module") ?? "");
   if (!m || m.auth.kind !== "oauth") return jsonError(404, "Такого модуля нет");
   const app = await loadOAuthApp(db, m);
@@ -24,7 +25,7 @@ export async function GET(req: Request) {
   to.search = new URLSearchParams({
     client_id: app.clientId,
     response_type: "code",
-    redirect_uri: `${origin}/api/connectors/oauth/callback`,
+    redirect_uri: redirectUri,
     scope: m.auth.scopes.join(" "),
     state,
     ...(m.auth.extraParams ?? { prompt: "select_account" }),

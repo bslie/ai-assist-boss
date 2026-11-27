@@ -17,6 +17,7 @@ const TokenSchema = z.object({
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const origin = requestOrigin(req) ?? url.origin;
+  const redirectUri = `${origin}/api/connectors/oauth/callback`;
   const back = (q: string) => NextResponse.redirect(new URL(`/connectors?${q}`, origin));
   if (url.searchParams.get("error")) return back(`error=${encodeURIComponent("Вход отменён или сервис отказал в доступе")}`);
 
@@ -38,7 +39,7 @@ export async function GET(req: Request) {
         client_secret: app.clientSecret,
         grant_type: "authorization_code",
         code,
-        redirect_uri: `${origin}/api/connectors/oauth/callback`,
+        redirect_uri: redirectUri,
       }),
       signal: AbortSignal.timeout(15_000),
     });
