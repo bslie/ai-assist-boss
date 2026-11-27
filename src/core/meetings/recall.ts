@@ -11,6 +11,7 @@ import { clock } from "../clock";
 import { decryptJson } from "../connectors/crypto";
 import { evaluate, getConnectorToolPermission, loadGateLeader, logVerdict } from "../policy-gate";
 import { recallCostRub, recordServiceUsage } from "../usage";
+import { detectPlatform, MeetingUrlSchema } from "./platform";
 
 const RECALL_TYPE = "BUILTIN_RECALL";
 const JOIN_LEAD_MS = 60_000; // SPEC 4.5.3: за 1 минуту до начала
@@ -89,6 +90,10 @@ export async function launchAvatarBot(db: PrismaClient, leaderId: string, meetin
   if (meeting.participationMode !== "AVATAR") return { status: "skipped", reason: "режим участия не AVATAR" };
   if (!meeting.meetingUrl) return { status: "skipped", reason: "у встречи нет ссылки" };
   if (meeting.recallBotId) return { status: "skipped", reason: "бот уже запущен" };
+  const platform = detectPlatform(meeting.meetingUrl);
+  if (!platform.botSupported) {
+    return { status: "skipped", reason: `${platform.label}: бот Recall туда не заходит — пришлите транскрипт вручную` };
+  }
   const auth = await loadRecallAuth(db, leaderId);
   if (!auth) return { status: "skipped", reason: "Recall не подключён" };
 
@@ -114,6 +119,25 @@ export async function launchAvatarBot(db: PrismaClient, leaderId: string, meetin
     await db.meeting.update({ where: { id: meetingId }, data: { recallBotId: null } });
     return { status: "failed", reason: (e as Error).message };
   }
+}
+
+export type JoinNowResult = LaunchResult | { status: "rejected"; reason: string };
+
+/**
+ * «Зайди на встречу»: руководитель сам указал ссылку — это явное согласие на AVATAR для этой встречи.
+ * Ссылка проверяется zod и платформой до записи в БД; завершённую встречу не трогаем.
+ */
+export async function joinMeetingNow(db: PrismaClient, leaderId: string, meetingId: string, url: string): Promise<JoinNowResult> {
+  const parsed = MeetingUrlSchema.safeParse(url);
+  if (!parsed.success) return { status: "rejected", reason: "некорректная ссылка на встречу" };
+  const platform = detectPlatform(parsed.data);
+  if (!platform.botSupported) return { status: "rejected", reason: `${platform.label}: бот туда не заходит` };
+  const meeting = await db.meeting.findFirst({ where: { id: meetingId, leaderId }, select: { endAt: true, recallBotId: true } });
+  if (!meeting) return { status: "rejected", reason: "встреча не найдена" };
+  if (meeting.recallBotId) return { status: "rejected", reason: "бот уже на этой встрече" };
+  if (meeting.endAt <= clock.now()) return { status: "rejected", reason: "встреча уже закончилась" };
+  await db.meeting.updateMany({ where: { id: meetingId, leaderId, recallBotId: null }, data: { meetingUrl: parsed.data, participationMode: "AVATAR" } });
+  return launchAvatarBot(db, leaderId, meetingId);
 }
 
 /** Встречи с аватаром, которым пора запускать бота: старт в ближайшую минуту по демо-времени (или уже идёт). */
