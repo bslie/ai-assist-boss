@@ -14,6 +14,8 @@ export const EVENT_TYPES = [
   "avatar.speak",
   /** Запуск рутины вручную (демо-сценарии): исполняет воркер, у него есть Telegram. data.code — код рутины. */
   "routine.trigger",
+  /** Сообщение руководителю в Telegram от веба (ответ исполнителя по ссылке из письма). data.text — простой текст. */
+  "leader.notify",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 

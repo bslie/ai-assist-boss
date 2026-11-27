@@ -10,7 +10,7 @@ import type { LlmClient } from "../llm";
 import { dispatchTask, executeApprovedToolCall, type DispatchDeps } from "../tasks/dispatch";
 import { executeApprovedAccept, executeApprovedReschedule } from "../tasks/lifecycle";
 import { executeBusinessReply } from "./business";
-import { shouldNotifyNow } from "./antispam";
+import { inQuietHours, shouldNotifyNow } from "./antispam";
 import { refreshDecisionCard, sendDecisionCard } from "./cards";
 import { esc } from "./types";
 
@@ -29,6 +29,16 @@ export async function relayEvent(deps: RelayDeps, leaderId: string, e: LeaderEve
     if (!code || !(MANUAL_ROUTINES as readonly string[]).includes(code)) return null;
     const res = await processRoutineJob(deps, { routineId: "manual", leaderId, code, firedAt: clock.now().toISOString() });
     return `рутина ${code} вручную: ${JSON.stringify(res)}`;
+  }
+  if (e.type === "leader.notify") {
+    const text = typeof e.data.text === "string" ? e.data.text.slice(0, 3000) : "";
+    if (!text) return null;
+    // Своему руководителю, в его LEADER-чаты: шлюз не нужен (как tellLeader). Тихие часы уважаем.
+    const quiet = await deps.db.leader.findFirst({ where: { id: leaderId }, select: { quietHoursStart: true, quietHoursEnd: true } });
+    if (quiet && inQuietHours(quiet.quietHoursStart, quiet.quietHoursEnd, clock.now())) return "уведомление руководителю пропущено: тихие часы (событие есть в журнале)";
+    const chats = await deps.db.telegramBinding.findMany({ where: { leaderId, role: "LEADER" }, select: { chatId: true } });
+    for (const chatId of new Set(chats.map((c) => c.chatId))) await deps.messenger.send(chatId, esc(text)).catch(() => {});
+    return `уведомление руководителю: ${chats.length} чат(ов)`;
   }
   const id = typeof e.data.id === "string" ? e.data.id : null;
   if (!id) return null;
