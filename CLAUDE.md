@@ -20,3 +20,4 @@
 - Prisma 7 (classic `schema.prisma`, `prisma-client` generator, `@prisma/adapter-pg`). Prisma 8 RC was removed.
 - No pgvector: memory is looked up by `scope`, not by embeddings. Plain `postgres:17`.
 - Dataset lives in `data/` (see SPEC section 2); tests read it directly.
+- Learning mode (SPEC 1.1): exit by area is stored as `Leader.trustedScopes` (email categories + `TASK_ASSIGN`), not as a `Rule`. Gate step 7 only tightens; locked categories can never be trusted. `approvedByLeader` in `GateContext` lifts only step 7 (card approved, approved protocol, budget threshold, avatar chosen).

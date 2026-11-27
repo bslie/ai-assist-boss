@@ -11,7 +11,7 @@ const { db } = await import("@/db/client");
 const { clock } = await import("@/core/clock");
 const { handleStart, leaderBindSecret } = await import("@/core/telegram/bindings");
 const { handleCallback, handleText } = await import("@/core/telegram/handlers");
-const { dispatchTask, dispatchPendingForEmployee, ASSIGN_TOOL } = await import("@/core/tasks/dispatch");
+const { dispatchTask, dispatchPendingForEmployee, ASSIGN_TOOL, TASK_ASSIGN_SCOPE } = await import("@/core/tasks/dispatch");
 const { relayEvent } = await import("@/core/telegram/relay");
 const { buildMorningDigest } = await import("@/core/telegram/morning");
 const { resolveDecision } = await import("@/core/decisions");
@@ -73,6 +73,8 @@ describe.skipIf(!dbUp)("поручения сотрудникам через Pol
     await clock.init();
     leaderId = await seedTempLeader(db, "disp");
     otherLeaderId = await seedTempLeader(db, "disp-other");
+    // Вердикты шлюза проверяем у руководителя, который уже вышел из режима обучения; сам режим — отдельный блок ниже.
+    await db.leader.updateMany({ where: { id: { in: [leaderId, otherLeaderId] } }, data: { learningMode: false } });
     const leader = await db.leader.findUniqueOrThrow({ where: { id: leaderId } });
     slug = leader.slug;
     leaderName = leader.name;
@@ -97,6 +99,62 @@ describe.skipIf(!dbUp)("поручения сотрудникам через Pol
     const c = await db.connector.findFirstOrThrow({ where: { leaderId, type: "BUILTIN_TELEGRAM" } });
     expect(c.toolPermissions).toMatchObject({ [ASSIGN_TOOL]: "AUTO" });
     expect(c.encryptedConfig).toBe(""); // секретов в БД нет
+  });
+
+  describe("режим обучения (SPEC 1.1)", () => {
+    const setLearning = (learningMode: boolean, trustedScopes: string[] = []) =>
+      db.leader.update({ where: { id: leaderId }, data: { learningMode, trustedScopes } });
+
+    it("даже при AUTO поручение идёт карточкой, пока помощник учится", async () => {
+      await setLearning(true);
+      try {
+        await bindEmployee(chat("L"));
+        const { m, sent } = fakeMessenger();
+        const t = await newTask();
+        const r = await dispatchTask({ db, messenger: m }, leaderId, t.id);
+        expect(r.status).toBe("awaiting_approval");
+        expect(sent).toHaveLength(0);
+        const d = await db.decision.findFirstOrThrow({ where: { leaderId, type: "TOOL_CALL" } });
+        expect(d.gateReasons.join(" ")).toMatch(/Режим обучения/);
+      } finally {
+        await setLearning(false);
+      }
+    });
+
+    it("доверие к поручениям отпускает их, но обязательство клиенту остаётся на подтверждении", async () => {
+      await setLearning(true, [TASK_ASSIGN_SCOPE]);
+      try {
+        await bindEmployee(chat("T"));
+        const { m, sent } = fakeMessenger();
+        const t = await newTask();
+        expect(await dispatchTask({ db, messenger: m }, leaderId, t.id)).toEqual({ status: "sent", chats: 1 });
+        expect(sent).toHaveLength(1);
+        const c = await newTask({ title: "Обещать клиенту скидку", isClientCommitment: true });
+        expect((await dispatchTask({ db, messenger: m }, leaderId, c.id)).status).toBe("awaiting_approval");
+      } finally {
+        await setLearning(false);
+      }
+    });
+
+    it("поручение из утверждённого протокола не спрашивают второй раз, из неутверждённого — спрашивают", async () => {
+      await setLearning(true);
+      const meeting = (approved: boolean) =>
+        db.meeting.create({
+          data: { leaderId, title: "Планёрка", category: "OPERATIONAL", startAt: new Date("2026-12-01T07:00:00Z"), endAt: new Date("2026-12-01T08:00:00Z"), isProtocolApproved: approved },
+        });
+      try {
+        await bindEmployee(chat("P"));
+        const { m, sent } = fakeMessenger();
+        const ok = await newTask({ sourceType: "MEETING", sourceRefId: (await meeting(true)).id });
+        expect(await dispatchTask({ db, messenger: m }, leaderId, ok.id)).toEqual({ status: "sent", chats: 1 });
+        const draft = await newTask({ sourceType: "MEETING", sourceRefId: (await meeting(false)).id, title: "Из черновика" });
+        expect((await dispatchTask({ db, messenger: m }, leaderId, draft.id)).status).toBe("awaiting_approval");
+        expect(sent).toHaveLength(1);
+      } finally {
+        await setLearning(false);
+        await db.meeting.deleteMany({ where: { leaderId, title: "Планёрка" } });
+      }
+    });
   });
 
   describe("вердикты шлюза", () => {

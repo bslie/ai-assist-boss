@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { ArrowUp, ChevronDown, Mic } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
+import { ArrowUp, ChevronDown, Mic, X } from "lucide-react";
 import type { ChatReply } from "@/core/chat";
 import { cn } from "@/lib/utils";
 
-const SUGGESTIONS = ["Что на сегодня?", "Какие встречи можно пропустить?", "Ответь Павловой, что в четверг", "Запомни: вендоров в архив"];
+const SUGGESTIONS = ["Что на сегодня?", "Что ты умеешь?", "Какие встречи можно пропустить?", "Ответь Павловой, что в четверг", "Как подключить тебя ко встречам?"];
 
 interface Msg {
   from: "me" | "bot";
@@ -26,16 +27,27 @@ function Avatar() {
 }
 
 /** Чат с помощником: поле на всю ширину колонки и лента ответов над ним. POST /api/chat. */
-export function Composer({ leaderId }: { leaderId: string }) {
+export function Composer({ leaderId, children }: { leaderId: string; /** Под полем ввода: подсказка подключить почту и календарь. */ children?: ReactNode }) {
   const [text, setText] = useState("");
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(true);
   const end = useRef<HTMLDivElement>(null);
+  const root = useRef<HTMLDivElement>(null);
+  const router = useRouter();
 
   useEffect(() => {
     end.current?.scrollIntoView({ block: "end", behavior: "smooth" });
   }, [msgs, busy, open]);
+
+  // Клик мимо чата (и поля ввода) сворачивает переписку, но не закрывает её.
+  useEffect(() => {
+    function onDown(e: PointerEvent) {
+      if (root.current && e.target instanceof Node && !root.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener("pointerdown", onDown);
+    return () => document.removeEventListener("pointerdown", onDown);
+  }, []);
 
   const q = `?leaderId=${encodeURIComponent(leaderId)}`;
 
@@ -65,28 +77,43 @@ export function Composer({ leaderId }: { leaderId: string }) {
   }
 
   async function run(i: number, a: NonNullable<ChatReply["actions"]>[number]) {
-    const res = await fetch(`/api/decisions/${a.resolve.decisionId}/resolve${q}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(a.resolve.body) });
-    const result = res.ok ? "Ответ утверждён" : res.status === 409 ? "Это письмо уже решено" : "Не получилось, попробуйте в карточке";
+    let result: string;
+    if ("resolve" in a) {
+      const res = await fetch(`/api/decisions/${a.resolve.decisionId}/resolve${q}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(a.resolve.body) });
+      result = res.ok ? "Ответ утверждён" : res.status === 409 ? "Это письмо уже решено" : "Не получилось, попробуйте в карточке";
+    } else {
+      // Изменение настроек — тем же API, что и страницы; страница перечитается по SSE.
+      const res = await fetch(`${a.patch.path}${q}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(a.patch.body) });
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      result = res.ok ? a.done : (j.error ?? "Не получилось применить");
+      if (res.ok) router.refresh();
+    }
     setMsgs((m) => m.map((x, k) => (k === i ? { ...x, actions: undefined, result } : x)));
   }
 
   return (
-    <div className="-mx-4 flex flex-col gap-2.5 bg-gradient-to-b from-transparent via-ink/90 to-ink px-4 pb-[max(12px,env(safe-area-inset-bottom))] pt-6 sm:mx-0 sm:px-0 sm:pb-5">
+    <div ref={root} className="-mx-4 flex flex-col gap-2.5 bg-gradient-to-b from-transparent via-ink/90 to-ink px-4 pb-[max(12px,env(safe-area-inset-bottom))] pt-6 sm:mx-0 sm:px-0 sm:pb-5">
       {msgs.length > 0 && (
         <section aria-label="Переписка с помощником" className="chat-panel overflow-hidden rounded-3xl border border-line-strong bg-sunken/90 shadow-[0_18px_50px_-18px_rgba(0,0,0,0.8)] backdrop-blur-md">
-          <header className="flex items-center gap-2 px-4 pt-2.5">
+          {/* В свёрнутом виде отступы симметричны, иначе заголовок съезжает вниз. */}
+          <header className={cn("flex items-center gap-2 px-4 transition-[padding] duration-300", open ? "pt-2.5" : "py-2.5")}>
             <span className="text-xs font-medium uppercase tracking-[0.08em] text-dim">Разговор</span>
-            <button type="button" onClick={() => setMsgs([])} className="ml-auto min-h-9 rounded-full px-3 text-[13px] text-dim transition-colors hover:text-foreground">
-              Очистить
-            </button>
             <button
               type="button"
               aria-label={open ? "Свернуть" : "Развернуть"}
               aria-expanded={open}
               onClick={() => setOpen(!open)}
-              className="flex size-9 items-center justify-center rounded-full text-dim transition-colors hover:bg-raised hover:text-foreground"
+              className="ml-auto flex size-9 items-center justify-center rounded-full text-dim transition-colors hover:bg-raised hover:text-foreground"
             >
               <ChevronDown size={18} className={cn("transition-transform duration-300", !open && "rotate-180")} />
+            </button>
+            <button
+              type="button"
+              aria-label="Закрыть чат"
+              onClick={() => setMsgs([])}
+              className="flex size-9 items-center justify-center rounded-full text-dim transition-colors hover:bg-raised hover:text-foreground"
+            >
+              <X size={18} />
             </button>
           </header>
           {/* Высота плавно схлопывается: grid-rows 1fr → 0fr. */}
@@ -139,6 +166,8 @@ export function Composer({ leaderId }: { leaderId: string }) {
           </div>
         </section>
       )}
+      {/* Подсказки видны только когда переписки нет (чат закрыт крестиком); в свёрнутом чате они скрыты. */}
+      {msgs.length === 0 && (
       <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 sm:mx-0 sm:flex-wrap sm:px-0">
         {SUGGESTIONS.map((s) => (
           <button
@@ -151,6 +180,7 @@ export function Composer({ leaderId }: { leaderId: string }) {
           </button>
         ))}
       </div>
+      )}
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -164,6 +194,7 @@ export function Composer({ leaderId }: { leaderId: string }) {
           id="say"
           value={text}
           onChange={(e) => setText(e.target.value)}
+          onFocus={() => setOpen(true)}
           placeholder="Скажите, что сделать"
           autoComplete="off"
           className="min-h-11 min-w-0 flex-1 bg-transparent outline-none placeholder:text-dim"
@@ -178,6 +209,7 @@ export function Composer({ leaderId }: { leaderId: string }) {
           <ArrowUp size={18} />
         </button>
       </form>
+      {children}
     </div>
   );
 }

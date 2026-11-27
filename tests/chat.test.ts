@@ -24,7 +24,7 @@ function llmWith(out: { answer?: string; actions?: Record<string, unknown>[] }) 
   };
   return { llm: new LlmClient({ provider, cache: new MemoryCache() }), calls };
 }
-const none = { rule: null, style: null, reply: null, task: null };
+const none = { rule: null, style: null, reply: null, task: null, learning: null, routine: null };
 const act = (kind: string, p: Record<string, unknown>) => ({ kind, ...none, ...p });
 
 describe.skipIf(!dbUp)("чат (Postgres)", () => {
@@ -99,7 +99,8 @@ describe.skipIf(!dbUp)("чат (Postgres)", () => {
     const { llm } = llmWith({ actions: [act("REPLY", { reply: { to: "Павловой", gist: "в четверг" } })] });
     const r = await handleChat(db, llm, leaderId, "Ответь Павловой, что в четверг");
     expect(r.actions).toHaveLength(1);
-    expect(r.actions?.[0].resolve.body.editedText).toContain("ИИ-помощник");
+    const a = r.actions?.[0];
+    expect(a && "resolve" in a ? a.resolve.body.editedText : "").toContain("ИИ-помощник");
     expect((await db.decision.findFirstOrThrow({ where: { id: d.id } })).status).toBe("PENDING");
   });
 
@@ -112,5 +113,37 @@ describe.skipIf(!dbUp)("чат (Postgres)", () => {
     expect(ans.actions).toBeUndefined();
     const r = llmWith({ actions: [act("REPLY", { reply: { to: "Несуществующая", gist: "да" } })] });
     expect((await handleChat(db, r.llm, otherId, "Ответь Несуществующей, да")).text).toContain("Не нашла");
+  });
+
+  it("в контексте есть справка о приложении, подключения, режим обучения и рутины", async () => {
+    const u = llmWith({ answer: "Подключите Recall в «Подключения»." });
+    await handleChat(db, u.llm, leaderId, "что подключить, чтобы ты была на встречах?");
+    expect(u.calls[0].system).toContain("О ПРИЛОЖЕНИИ");
+    expect(u.calls[0].system).toMatch(/Встречи \(Recall.*\): не подключено/);
+    expect(u.calls[0].system).toContain("Режим обучения: включён");
+    expect(u.calls[0].system).toContain("MORNING_DIGEST");
+  });
+
+  it("режим обучения из чата: только предложение с кнопкой, защищённое не отпускается", async () => {
+    const off = await handleChat(db, llmWith({ actions: [act("LEARNING", { learning: { mode: "OFF", scope: null, trusted: null } })] }).llm, leaderId, "выключи режим обучения");
+    expect(off.text).toContain("Было:");
+    expect(off.actions?.[0]).toMatchObject({ patch: { path: "/api/learning", body: { kind: "mode", enabled: false } } });
+    expect((await db.leader.findUniqueOrThrow({ where: { id: leaderId } })).learningMode).toBe(true); // без нажатия ничего не изменилось
+
+    const trust = await handleChat(db, llmWith({ actions: [act("LEARNING", { learning: { mode: null, scope: "TASK_ASSIGN", trusted: true } })] }).llm, leaderId, "поручения отправляй без меня");
+    expect(trust.actions?.[0]).toMatchObject({ patch: { body: { kind: "trust", scope: "TASK_ASSIGN", trusted: true } } });
+
+    const hr = await handleChat(db, llmWith({ actions: [act("LEARNING", { learning: { mode: null, scope: "HR", trusted: true } })] }).llm, leaderId, "кадры решай сама");
+    expect(hr.actions).toBeUndefined();
+    expect(hr.text).toContain("всегда согласую");
+  });
+
+  it("рутина из чата: было/станет и PATCH только по кнопке", async () => {
+    const r = await handleChat(db, llmWith({ actions: [act("ROUTINE", { routine: { code: "MORNING_DIGEST", time: "9:00", active: null } })] }).llm, leaderId, "утренний план присылай в 9");
+    expect(r.text).toMatch(/Было: .*\nСтанет: .*09:00/);
+    const a = r.actions?.[0];
+    expect(a && "patch" in a ? a.patch.body : null).toMatchObject({ cronExpression: expect.stringMatching(/^0 9 /) });
+    const bad = await handleChat(db, llmWith({ actions: [act("ROUTINE", { routine: { code: "NOPE", time: "9:00", active: null } })] }).llm, leaderId, "x");
+    expect(bad.text).toContain("Не нашла такую рутину");
   });
 });

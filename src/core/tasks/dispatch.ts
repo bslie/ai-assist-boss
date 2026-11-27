@@ -4,7 +4,8 @@
  *   ALLOW   → отправить сразу;
  *   APPROVE → карточка руководителю (Decision TOOL_CALL), отправка после «Утвердить»;
  *   DENY    → не отправлять.
- * Исполнитель ещё не привязал бота → поручение ждёт, руководителю уйдёт ссылка-приглашение.
+ * Исполнитель не привязал бота → письмом со ссылкой «Принял / Уточнить / Не успею» (если подключена почта),
+ * иначе поручение ждёт, а руководителю уйдёт ссылка-приглашение.
  */
 import type { PrismaClient } from "@/generated/prisma/client";
 import { clock } from "../clock";
@@ -18,17 +19,26 @@ import {
   type GateResult,
 } from "../policy-gate";
 import { esc, type Button, type Messenger } from "../telegram/types";
+import { createMailConnector, MAIL_TYPES } from "../mail/factory";
+import type { MailConnector } from "../mail/types";
+import { getConnectorToolPermission } from "../policy-gate";
+import { taskEmail, taskLinkToken, taskLinkUrl } from "./email-link";
 
 export const ASSIGN_TOOL = "telegram.assign_task";
+/** Область доверия режима обучения для отправки поручений (SPEC 1.1). */
+export const TASK_ASSIGN_SCOPE = "TASK_ASSIGN";
 const TZ = "Europe/Moscow";
 
 export interface DispatchDeps {
   db: PrismaClient;
   messenger: Messenger;
+  /** Почтовый клиент для поручений письмом; по умолчанию — из подключения руководителя (тесты подменяют). */
+  mail?: (row: { id: string; leaderId: string; type: string; encryptedConfig: string }) => MailConnector | null;
 }
 
 export type DispatchResult =
   | { status: "sent"; chats: number }
+  | { status: "emailed"; to: string }
   | { status: "awaiting_binding" }
   | { status: "awaiting_approval"; decisionId: string }
   | { status: "denied" }
@@ -84,12 +94,20 @@ export async function dispatchTask(
         ? { verdict: "DENY", reasons: [`Инструмент ${ASSIGN_TOOL} запрещён`], signals: [] }
         : { verdict: "ALLOW", reasons: ["Подтверждено руководителем"], signals: [] };
   } else {
+    // Поручение из утверждённого протокола: руководитель уже видел исполнителя, срок и критерий.
+    // Это снимает только режим обучения; права инструмента и защищённые категории проверяются как обычно.
+    const fromApprovedProtocol =
+      task.sourceType === "MEETING" &&
+      Boolean(task.sourceRefId) &&
+      (await db.meeting.count({ where: { id: task.sourceRefId ?? "", leaderId, isProtocolApproved: true } })) > 0;
     verdict = evaluate(ASSIGN_TOOL, {
+      approvedByLeader: fromApprovedProtocol,
       leader: await loadGateLeader(db, leaderId),
       // Обязательство клиенту — защищённая категория, даже если письмо классифицировано иначе.
       category: task.isClientCommitment ? "CLIENT_COMMITMENT" : (source?.category ?? undefined),
       confidence: source?.confidence ?? 1,
       toolPermission: permission,
+      trustScope: TASK_ASSIGN_SCOPE,
     });
   }
   await logVerdict(db, leaderId, ASSIGN_TOOL, verdict, { metadata: { taskId: task.id } });
@@ -125,6 +143,9 @@ export async function dispatchTask(
   });
   const chats = [...new Set(bindings.map((b) => b.chatId))];
   if (chats.length === 0) {
+    // Telegram нет — письмом, если подключена почта (SPEC 4.3.2): задача не «зависает» из-за бота.
+    const emailed = await dispatchByEmail(deps, task);
+    if (emailed) return emailed;
     await db.activityLog.create({
       data: {
         leaderId,
@@ -159,6 +180,62 @@ export async function dispatchTask(
   await db.task.updateMany({ where: { id: task.id, leaderId }, data: { telegramMessageId: first } });
   await publishEvent(leaderId, { type: "task.updated", data: { id: task.id } });
   return { status: "sent", chats: chats.length };
+}
+
+/**
+ * Поручение письмом: вердикт шлюза уже ALLOW (или руководитель утвердил карточку). Нужны подключённая почта,
+ * адрес исполнителя и CONNECTOR_SECRET для подписи ссылки. Запрет отправки в правах почты (DENY) сильнее.
+ * null — письмом отправить нельзя, поручение ждёт Telegram, как раньше.
+ */
+async function dispatchByEmail(
+  deps: DispatchDeps,
+  task: { id: string; leaderId: string; title: string; dueAt: Date; acceptanceCriteria: string; assignee: { id: string; name: string; email: string; inviteToken: string } | null; leader: { name: string } },
+): Promise<DispatchResult | null> {
+  const { db } = deps;
+  const to = task.assignee?.email.trim();
+  if (!task.assignee || !to || !to.includes("@")) return null;
+  const token = taskLinkToken(task.id);
+  if (!token) return null;
+  const row = await db.connector.findFirst({ where: { leaderId: task.leaderId, isActive: true, type: { in: [...MAIL_TYPES] } }, orderBy: { createdAt: "asc" } });
+  if (!row) return null;
+  if ((await getConnectorToolPermission(db, task.leaderId, row.id, "mail.send_reply")) === "DENY") return null;
+  const mail = (deps.mail ?? ((r) => createMailConnector(db, r)))(row);
+  if (!mail) return null;
+
+  const claimed = await db.task.updateMany({ where: { id: task.id, leaderId: task.leaderId, notifiedAt: null }, data: { notifiedAt: clock.now() } });
+  if (claimed.count === 0) return { status: "skipped", reason: "уже отправлено" };
+
+  const bot = process.env.TELEGRAM_BOT_USERNAME;
+  const { subject, text } = taskEmail({
+    leaderName: task.leader.name,
+    title: task.title,
+    dueAt: task.dueAt,
+    criteria: task.acceptanceCriteria,
+    url: taskLinkUrl(token),
+    inviteUrl: bot ? `https://t.me/${bot}?start=${task.assignee.inviteToken}` : null,
+  });
+  try {
+    await mail.send({ to, subject, text });
+  } catch (e) {
+    await db.task.updateMany({ where: { id: task.id, leaderId: task.leaderId }, data: { notifiedAt: null } }); // дать шанс повторить
+    await db.activityLog.create({
+      data: { leaderId: task.leaderId, createdAt: clock.now(), pipeline: "TASK", action: "TASK_EMAIL_FAILED", reason: `Поручение «${task.title}» не ушло письмом: ${(e as Error).message}`, metadata: { taskId: task.id } },
+    });
+    return null;
+  }
+  await db.activityLog.create({
+    data: {
+      leaderId: task.leaderId,
+      createdAt: clock.now(),
+      pipeline: "TASK",
+      action: "TASK_SENT_EMAIL",
+      reason: `Поручение «${task.title}» отправлено ${task.assignee.name} письмом: Telegram не подключён`,
+      savedMinutes: 3,
+      metadata: { taskId: task.id, employeeId: task.assignee.id, to },
+    },
+  });
+  await publishEvent(task.leaderId, { type: "task.updated", data: { id: task.id } });
+  return { status: "emailed", to };
 }
 
 /** Поручения сотрудника, которые ждали привязки или ещё не отправлялись (после /start сотрудника). */

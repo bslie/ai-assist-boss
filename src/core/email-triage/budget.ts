@@ -43,6 +43,7 @@ export function budgetAutoApproval(args: {
     amount: c.amount,
     // Порог в профиле и есть разрешение руководителя; прав коннектора у «бюджета» нет.
     toolPermission: "AUTO",
+    approvedByLeader: true,
   });
   if (verdict.verdict !== "ALLOW") return null;
   return {

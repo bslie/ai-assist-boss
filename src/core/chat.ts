@@ -1,6 +1,6 @@
 /**
- * Чат с помощником (SPEC 6: /api/chat). Понимает три вещи: «что на сегодня», правила словами
- * («вендоров в архив», «пиши короче») и «ответь <кому>, что …» по ожидающей карточке.
+ * Чат с помощником (SPEC 1.1, 6: /api/chat) — основной инструмент. Понимает: «что на сегодня», правила словами
+ * («вендоров в архив», «пиши короче»), «ответь <кому>, что …», поручения, режим обучения, рутины и вопросы о приложении.
  * Внешних эффектов у чата нет: ответ на письмо возвращается как ПРЕДЛОЖЕНИЕ с кнопкой, которая
  * идёт обычным путём решения карточки; правила проходят те же проверки, что и страница «Как я работаю».
  */
@@ -13,7 +13,11 @@ import { publishEvent } from "./events";
 import { ensureSignature } from "./learning/draft";
 import { isSafeRule } from "./learning/extract";
 import type { LlmClient } from "./llm";
+import { getReadiness } from "./connectors/readiness";
+import { SCOPE_LABEL, TRUST_SCOPES, canTrust, getLearningStatus, type LearningPatch } from "./learning/mode";
+import { describeCron, validCron } from "./routines";
 import { createRule } from "./rules";
+import { TASK_ASSIGN_SCOPE } from "./tasks/dispatch";
 import { createTask } from "./tasks/registry";
 
 export const ChatInputSchema = z.object({
@@ -25,11 +29,23 @@ export const ChatInputSchema = z.object({
     .optional(),
 });
 
-export interface ChatAction {
-  label: string;
-  /** Тело POST /api/decisions/[id]/resolve. */
-  resolve: { decisionId: string; body: { action: "EDITED_APPROVED"; editedText: string } };
-}
+/**
+ * Кнопка подтверждения под ответом. Чат сам ничего не меняет: изменение применяется только по нажатию,
+ * тем же API, что и страницы (SPEC 1.1, «Управление через чат»).
+ */
+export type ChatAction =
+  | {
+      label: string;
+      /** Тело POST /api/decisions/[id]/resolve. */
+      resolve: { decisionId: string; body: { action: "EDITED_APPROVED"; editedText: string } };
+    }
+  | {
+      label: string;
+      /** PATCH на API настроек: режим обучения или рутина. */
+      patch: { path: "/api/learning" | "/api/routines"; body: LearningPatch | { id: string; isActive?: boolean; cronExpression?: string } };
+      /** Что показать после успешного применения. */
+      done: string;
+    };
 export interface ChatReply {
   text: string;
   /** Подготовленный текст письма: показывается отдельной цитатой. */
@@ -38,7 +54,7 @@ export interface ChatReply {
 }
 
 const ActionSchema = z.object({
-  kind: z.enum(["RULE", "STYLE", "REPLY", "TASK"]),
+  kind: z.enum(["RULE", "STYLE", "REPLY", "TASK", "LEARNING", "ROUTINE"]),
   /** RULE: что делать с письмами категории. */
   rule: z.object({ name: z.string().min(1).max(120), category: z.enum(EMAIL_CATEGORIES), action: z.enum(EMAIL_ACTIONS) }).nullable(),
   /** STYLE: правило о манере письма одним предложением. */
@@ -47,6 +63,10 @@ const ActionSchema = z.object({
   reply: z.object({ to: z.string().min(1), gist: z.string().min(1).max(500) }).nullable(),
   /** TASK: кому (как назвал руководитель), что сделать и срок (ISO 8601 +03:00, null — срок не назван). */
   task: z.object({ assignee: z.string().min(1), title: z.string().min(3).max(200), dueAt: z.string().nullable() }).nullable(),
+  /** LEARNING: включить/выключить режим обучения (mode) или отпустить/вернуть область (scope + trusted). */
+  learning: z.object({ mode: z.enum(["ON", "OFF"]).nullable(), scope: z.enum(TRUST_SCOPES).nullable(), trusted: z.boolean().nullable() }).nullable(),
+  /** ROUTINE: код рутины из контекста, новое время «ЧЧ:ММ» и/или включить-выключить. */
+  routine: z.object({ code: z.string().min(1).max(40), time: z.string().nullable(), active: z.boolean().nullable() }).nullable(),
 });
 
 const AgentSchema = z.object({
@@ -65,7 +85,24 @@ const SYSTEM = [
     EMAIL_CATEGORIES.map((c) => `${c} (${CATEGORY_HELP[c]})`).join("; ") + ".",
   "TASK — «поставь <кому> задачу <что> до <когда>»: assignee как назвал руководитель, title коротко, dueAt в ISO 8601 с +03:00 или null, если срок не назван (не выдумывай срок).",
   "STYLE — одно предложение в повелительном наклонении. REPLY.gist — суть ответа без выдуманных деталей.",
+  "LEARNING — «выключи режим обучения» (mode OFF), «снова учись» (mode ON), «приглашения решай сама» / «поручения отправляй без меня» (scope + trusted true), «верни отчёты мне» (scope + trusted false). Поручения сотрудникам — scope TASK_ASSIGN.",
+  "ROUTINE — «утренний план присылай в 9:00», «выключи итог недели»: code из списка рутин в контексте, time «ЧЧ:ММ» или null, active true/false или null.",
   "Если есть действие, answer оставь пустой строкой: результат действия сообщит система. Не утверждай, что что-то запомнила или отправила.",
+  "На вопросы о самом приложении («что ты умеешь», «где настроить», «что подключить, чтобы ты была на встречах», «почему ты спрашиваешь») отвечай по разделу «О ПРИЛОЖЕНИИ» и по состоянию подключений в контексте, называя раздел, куда идти.",
+].join(" ");
+
+/** Справка о продукте для ответов «что ты умеешь» и «где это настроить» (SPEC 1.1). */
+export const APP_GUIDE = [
+  "О ПРИЛОЖЕНИИ.",
+  "Разделы: «Разговор» — главная: сводка дня, карточки решений, этот чат и статус режима обучения. «Поручения» — задачи сотрудникам, сроки, приёмка результата.",
+  "«Как я работаю» — правила разбора писем (защищённые правила ослабить нельзя). «Рутины» — утренний план, итог недели, контроль сроков: время и включение.",
+  "«Метрики» — сэкономленные часы, доля писем без руководителя, стоимость. «Профиль» — цели, стиль, порог бюджета, импорт leader_profile.md.",
+  "«Подключения» — почта (Gmail, Яндекс, Microsoft 365), Google Календарь, Telegram (карточки руководителю и поручения сотрудникам), Recall (встречи), свои MCP-серверы; у каждого инструмента права: сама / с подтверждением / запрещено.",
+  "Минимум для старта — почта и календарь. Без них я работаю на демо-данных.",
+  "Чтобы я была на встречах: в «Подключения» подключить Recall и календарь со ссылками Zoom/Meet/Teams. Тогда во встрече можно выбрать участие аватаром: бот заходит, задаёт вопросы по прошлому протоколу, а протокол приходит вам на утверждение. Без Recall протокол можно сделать из транскрипта.",
+  "Режим обучения: пока он включён, ответы, поручения и действия в почте и календаре идут только после «да» руководителя. После серии решений без правок я предлагаю отпустить область. Кадры, руководство, обещания клиентам и деньги выше порога — всегда с руководителем.",
+  "В чате я умею: рассказать о дне и встречах, посоветовать, что пропустить, запомнить правило или стиль, подготовить ответ на письмо, поставить поручение сотруднику, менять режим обучения и рутины (каждое изменение — после кнопки подтверждения).",
+  "Пока не умею: сама переносить встречи в календаре, менять профиль и порог бюджета из чата (это в «Профиль»), голосовой ввод.",
 ].join(" ");
 
 const STATUS_RE = /^\s*(что\s+(у\s+нас\s+)?на\s+сегодня|план\s+(на\s+)?(день|сегодня)|что\s+нового|что\s+горит)\W*$/i;
@@ -74,11 +111,14 @@ export const HELP_TEXT = "Не уверена, что поняла. Спроси
 
 /** Снимок данных руководителя для модели: только его, только нужное для разговора. */
 export async function buildChatContext(db: PrismaClient, leaderId: string): Promise<string> {
-  const [t, leader, rules, memories] = await Promise.all([
+  const [t, leader, rules, memories, learning, readiness, routines] = await Promise.all([
     getToday(db, leaderId),
     db.leader.findFirstOrThrow({ where: { id: leaderId }, select: { name: true, role: true, protectedBlocks: true, profileMarkdown: true, budgetAutoLimit: true } }),
     db.rule.findMany({ where: { leaderId }, select: { name: true, action: true }, take: 30 }),
     db.memory.findMany({ where: { leaderId, isActive: true }, select: { ruleText: true }, take: 20 }),
+    getLearningStatus(db, leaderId),
+    getReadiness(db, leaderId),
+    db.routine.findMany({ where: { leaderId }, orderBy: { code: "asc" }, select: { code: true, title: true, cronExpression: true, isActive: true } }),
   ]);
   const lines = [
     `Сейчас: ${t.now} (Москва). Руководитель: ${leader.name}, ${leader.role}.`,
@@ -93,6 +133,13 @@ export async function buildChatContext(db: PrismaClient, leaderId: string): Prom
     `Главное на сегодня: ${t.priorities.join("; ") || "—"}.`,
     `Правила обработки писем: ${rules.map((r) => `${r.name} → ${r.action}`).join("; ") || "нет"}.`,
     `Выученные правила стиля: ${memories.map((m) => m.ruleText).join("; ") || "нет"}.`,
+    "",
+    `Подключения: ${readiness.summary}`,
+    `Режим обучения: ${learning.learningMode ? "включён" : "выключен"}. Решений без правок: ${learning.clean} из ${learning.resolved}. Решаю сама: ${learning.trusted.map((x) => x.label).join(", ") || "ничего"}.` +
+      (learning.suggestions.length ? ` Можно предложить отпустить: ${learning.suggestions.map((s) => `${s.label} (${s.streak} подряд без правок)`).join(", ")}.` : ""),
+    `Рутины: ${routines.map((r) => `${r.code} «${r.title}» ${describeCron(r.cronExpression)}${r.isActive ? "" : " (выключена)"}`).join("; ") || "нет"}.`,
+    "",
+    APP_GUIDE,
     "",
     "Профиль руководителя (выдержка):",
     leader.profileMarkdown.slice(0, 5000),
@@ -132,13 +179,16 @@ export async function handleChat(
     else if (a.kind === "STYLE" && a.style) replies.push(await addStyle(db, leaderId, a.style));
     else if (a.kind === "REPLY" && a.reply) replies.push(await proposeReply(db, llm, leaderId, a.reply));
     else if (a.kind === "TASK" && a.task) replies.push(await addTask(db, llm, leaderId, a.task));
+    else if (a.kind === "LEARNING" && a.learning) replies.push(await proposeLearning(db, leaderId, a.learning));
+    else if (a.kind === "ROUTINE" && a.routine) replies.push(await proposeRoutine(db, leaderId, a.routine));
   }
   if (replies.length === 0) return { text: res.answer.trim() || HELP_TEXT };
   const lead = replies.length > 1 || !res.answer.trim() ? [] : [res.answer.trim()];
+  const actions = replies.flatMap((r) => r.actions ?? []);
   return {
     text: [...lead, ...replies.map((r) => r.text)].join("\n\n"),
     draft: replies.find((r) => r.draft)?.draft,
-    actions: replies.flatMap((r) => r.actions ?? []),
+    actions: actions.length ? actions : undefined,
   };
 }
 
@@ -182,7 +232,7 @@ async function addStyle(db: PrismaClient, leaderId: string, style: string): Prom
 
 /** Поручение из чата: сам чат ничего не отправляет, исполнителю оно уйдёт через Policy Gate. */
 async function addTask(db: PrismaClient, llm: LlmClient, leaderId: string, task: { assignee: string; title: string; dueAt: string | null }): Promise<ChatReply> {
-  const keys = task.assignee.split(/s+/).map(stem);
+  const keys = task.assignee.split(/\s+/).filter(Boolean).map(stem);
   const people = await db.employee.findMany({ where: { leaderId, relationType: "SUBORDINATE" }, select: { id: true, name: true } });
   const hits = people.filter((p) => keys.some((k) => norm(p.name).includes(k)));
   if (hits.length === 0) return { text: `Не нашла среди ваших сотрудников «${task.assignee}». Назовите, кому поставить задачу.` };
@@ -193,7 +243,81 @@ async function addTask(db: PrismaClient, llm: LlmClient, leaderId: string, task:
 
   const res = await createTask(db, llm, leaderId, { title: task.title, description: "", assigneeId: hits[0].id, dueAt: due, isClientCommitment: false, isTypical: false });
   if (!res.ok) return { text: `Не поставила задачу: ${res.message}.` };
-  return { text: `Поставила задачу «${task.title}» для ${hits[0].name}. Критерий готовности сформулировала, исполнитель получит её в Telegram.` };
+  const gate = await db.leader.findFirstOrThrow({ where: { id: leaderId }, select: { learningMode: true, trustedScopes: true } });
+  const delivery =
+    gate.learningMode && !gate.trustedScopes.includes(TASK_ASSIGN_SCOPE)
+      ? "Пока я учусь, сама его не отправляю: поручение придёт вам карточкой «Отправить поручение»."
+      : "Исполнитель получит его в Telegram, а если бот не подключён — письмом со ссылкой для ответа.";
+  return { text: `Поставила задачу «${task.title}» для ${hits[0].name}. Критерий готовности сформулировала. ${delivery}` };
+}
+
+/** Режим обучения из чата: только предложение с кнопкой; защищённое не отпускается (SPEC 1.1). */
+async function proposeLearning(
+  db: PrismaClient,
+  leaderId: string,
+  l: NonNullable<z.infer<typeof ActionSchema>["learning"]>,
+): Promise<ChatReply> {
+  const status = await getLearningStatus(db, leaderId);
+  if (l.mode) {
+    const enabled = l.mode === "ON";
+    if (status.learningMode === enabled) return { text: enabled ? "Режим обучения уже включён: без вашего «да» я ничего не отправляю." : "Режим обучения уже выключен." };
+    return {
+      text: enabled
+        ? "Предлагаю снова включить режим обучения.\nБыло: действую по правилам и правам подключений.\nСтанет: любое внешнее действие — только после вашего «да»."
+        : `Предлагаю выключить режим обучения (без правок вы приняли ${status.clean} из ${status.resolved}).\nБыло: всё внешнее — только после вашего «да».\nСтанет: действую по правилам и правам подключений. Кадры, руководство, обещания клиентам и деньги выше порога по-прежнему только с вами.`,
+      actions: [{ label: enabled ? "Включить режим обучения" : "Выключить режим обучения", patch: { path: "/api/learning", body: { kind: "mode", enabled } }, done: enabled ? "Режим обучения включён" : "Режим обучения выключен" }],
+    };
+  }
+  if (!l.scope) return { text: "Какую область отпустить: например, приглашения, отчёты или поручения сотрудникам?" };
+  const trusted = l.trusted ?? true;
+  const label = SCOPE_LABEL[l.scope];
+  if (trusted && !canTrust(l.scope)) return { text: `${label} я всегда согласую с вами: эту защиту не снимают ни правилом, ни словами.` };
+  const has = status.trusted.some((x) => x.scope === l.scope);
+  if (has === trusted) return { text: trusted ? `${label} я уже решаю сама.` : `${label} и так идут через вас.` };
+  return {
+    text: trusted
+      ? `Предлагаю отпустить: ${label}.\nБыло: каждое такое действие — после вашего «да».\nСтанет: решаю сама по вашим правилам; сомнительные случаи и защищённые категории всё равно принесу вам.`
+      : `Предлагаю вернуть вам: ${label}.\nБыло: решаю сама.\nСтанет: каждое такое действие — после вашего «да».`,
+    actions: [{ label: trusted ? "Отпустить" : "Вернуть мне", patch: { path: "/api/learning", body: { kind: "trust", scope: l.scope, trusted } }, done: trusted ? `${label}: решаю сама` : `${label}: снова через вас` }],
+  };
+}
+
+/** Время или включение рутины из чата: diff и кнопка, применяет тот же PATCH /api/routines. */
+async function proposeRoutine(
+  db: PrismaClient,
+  leaderId: string,
+  r: NonNullable<z.infer<typeof ActionSchema>["routine"]>,
+): Promise<ChatReply> {
+  const routine = await db.routine.findFirst({ where: { leaderId, code: r.code } });
+  if (!routine) return { text: `Не нашла такую рутину. Есть: ${(await db.routine.findMany({ where: { leaderId }, select: { title: true } })).map((x) => `«${x.title}»`).join(", ") || "никаких"}.` };
+
+  let cron = routine.cronExpression;
+  if (r.time) {
+    const m = /^(\d{1,2}):(\d{2})$/.exec(r.time.trim());
+    const parts = cron.split(" ");
+    if (!m || Number(m[1]) > 23 || Number(m[2]) > 59 || !/^\d+$/.test(parts[0] ?? "") || !/^\d+$/.test(parts[1] ?? "")) {
+      return { text: `Не смогла поменять время у «${routine.title}» словами. Это можно сделать на странице «Рутины».` };
+    }
+    cron = [String(Number(m[2])), String(Number(m[1])), ...parts.slice(2)].join(" ");
+    if (!validCron(cron)) return { text: "Не получилось разобрать новое время." };
+  }
+  const active = r.active ?? routine.isActive;
+  if (cron === routine.cronExpression && active === routine.isActive) return { text: `«${routine.title}» уже ${active ? describeCron(cron) : "выключена"}.` };
+
+  const show = (c: string, on: boolean) => (on ? describeCron(c) : "выключена");
+  return {
+    text: `Предлагаю изменить рутину «${routine.title}».\nБыло: ${show(routine.cronExpression, routine.isActive)}.\nСтанет: ${show(cron, active)}.`,
+    actions: [
+      {
+        label: "Применить",
+        patch: {
+          path: "/api/routines",
+          body: { id: routine.id, ...(active !== routine.isActive ? { isActive: active } : {}), ...(cron !== routine.cronExpression ? { cronExpression: cron } : {}) },
+        },
+        done: `«${routine.title}»: ${show(cron, active)}`,
+      },
+    ],
+  };
 }
 
 const DraftSchema = z.object({ text: z.string().min(1).max(2000) });

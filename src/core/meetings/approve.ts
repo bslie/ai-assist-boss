@@ -132,7 +132,7 @@ async function sendProtocolMail(
       return { sent: 0, failed: 0, note: "почта не подключена" };
     }
     const perm = await getConnectorToolPermission(db, leaderId, row.id, "mail.send_reply");
-    const verdict = evaluate("mail.send_reply", { leader: await loadGateLeader(db, leaderId), toolPermission: perm, isOutbound: true });
+    const verdict = evaluate("mail.send_reply", { leader: await loadGateLeader(db, leaderId), toolPermission: perm, isOutbound: true, approvedByLeader: true });
     await logVerdict(db, leaderId, "mail.send_reply", verdict, { metadata: { kind: "protocol", approvedByLeader: true } });
     if (verdict.verdict === "DENY") {
       await log("PROTOCOL_MAIL_SKIPPED", "Рассылка запрещена в правах подключения");

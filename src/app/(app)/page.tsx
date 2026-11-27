@@ -6,7 +6,11 @@ import { Composer } from "@/components/assistant/composer";
 import { DecisionStack } from "@/components/assistant/decision-stack";
 import { LiveRefresh } from "@/components/assistant/live-refresh";
 import { DayList } from "@/components/assistant/day-list";
+import { LearningStatus } from "@/components/assistant/learning-status";
+import { ConnectStrip } from "@/components/assistant/connect-strip";
 import { getToday, plural } from "@/core/dashboard";
+import { getLearningStatus } from "@/core/learning/mode";
+import { getReadiness } from "@/core/connectors/readiness";
 import { db } from "@/db/client";
 import { getCurrentLeader } from "@/lib/current-leader";
 
@@ -24,14 +28,23 @@ async function Today() {
   if (!leader) {
     return <main className="mx-auto w-full max-w-[720px] flex-1 px-5 py-16 text-dim">Руководитель ещё не создан. Запустите <code>npm run db:seed</code>.</main>;
   }
-  const [today, delegates] = await Promise.all([
+  const [today, delegates, learning, readiness] = await Promise.all([
     getToday(db, leader.id),
     db.employee.findMany({
       where: { leaderId: leader.id, relationType: "SUBORDINATE" },
       orderBy: { name: "asc" },
       select: { id: true, name: true, position: true },
     }),
+    getLearningStatus(db, leader.id),
+    getReadiness(db, leader.id),
   ]);
+  const connectLabel =
+    !readiness.mail && !readiness.calendar
+      ? "Подключите почту и календарь — начну работать с вашими письмами и встречами, а не с демо-данными"
+      : !readiness.mail
+        ? "Подключите почту — начну разбирать ваши настоящие письма"
+        : "Подключите календарь — буду готовить вас к встречам и беречь защищённое время";
+  const connectShort = !readiness.mail && !readiness.calendar ? "Подключите почту и календарь" : !readiness.mail ? "Подключите почту" : "Подключите календарь";
   const now = new Date(today.now);
   const firstName = leader.name.split(" ")[0];
   const { headline, metrics } = today;
@@ -75,6 +88,9 @@ async function Today() {
                 ))}
               </div>
             )}
+            <div className="rise" style={{ "--d": "1950ms" } as CSSProperties}>
+              <LearningStatus leaderId={leader.id} status={learning} />
+            </div>
           </section>
           <section aria-label="Решения" className="rise" style={{ "--d": "2100ms" } as CSSProperties}>
             <DecisionStack leaderId={leader.id} decisions={today.decisions} delegates={delegates} />
@@ -101,7 +117,9 @@ async function Today() {
       </div>
       {/* Строка ввода прилипает к низу экрана на любой ширине; на десктопе стоит в колонке под карточками. */}
       <div className="sticky bottom-0 z-10 mx-auto mt-4 grid w-full max-w-[1280px] grid-cols-1 px-4 sm:px-10 lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-14">
-        <Composer leaderId={leader.id} />
+        <Composer leaderId={leader.id}>
+          <ConnectStrip leaderId={leader.id} missing={readiness.missing} label={connectLabel} short={connectShort} />
+        </Composer>
       </div>
     </>
   );

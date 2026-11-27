@@ -93,7 +93,7 @@ export async function launchAvatarBot(db: PrismaClient, leaderId: string, meetin
   if (!auth) return { status: "skipped", reason: "Recall не подключён" };
 
   const perm = auth.connectorId ? await getConnectorToolPermission(db, leaderId, auth.connectorId, "meeting.join_bot") : null;
-  const verdict = evaluate("meeting.join_bot", { leader: await loadGateLeader(db, leaderId), toolPermission: perm === "DENY" ? "DENY" : "AUTO", isOutbound: true });
+  const verdict = evaluate("meeting.join_bot", { leader: await loadGateLeader(db, leaderId), toolPermission: perm === "DENY" ? "DENY" : "AUTO", isOutbound: true, approvedByLeader: true });
   await logVerdict(db, leaderId, "meeting.join_bot", verdict, { metadata: { meetingId, standingConsent: "participationMode=AVATAR" } });
   if (verdict.verdict === "DENY") return { status: "skipped", reason: "запуск бота запрещён в правах подключения" };
 

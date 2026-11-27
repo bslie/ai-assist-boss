@@ -403,7 +403,7 @@ function Users({ viewerLogin }: { viewerLogin: string }) {
           </label>
           <label className="flex flex-col gap-1 text-sm">
             <span className="text-dim">Руководитель {form.role === "LEADER" ? "(обязательно)" : "(необязательно)"}</span>
-            <select className={INPUT} value={form.leaderId} onChange={(e) => setForm({ ...form, leaderId: e.target.value })}>
+            <select className={INPUT} required={form.role === "LEADER"} value={form.leaderId} onChange={(e) => setForm({ ...form, leaderId: e.target.value })}>
               <option value="">—</option>
               {leaders.map((l) => (
                 <option key={l.id} value={l.id}>{l.name}</option>

@@ -66,6 +66,21 @@ describe("policy gate", () => {
     expect(evaluate("archive", base({ leader: { ...leader, shadowMode: true } })).verdict).toBe("APPROVE");
   });
 
+  it("режим обучения: ALLOW → APPROVE; согласие руководителя и доверие по области снимают его", () => {
+    const learning = { ...leader, learningMode: true, trustedScopes: ["INVITATION", "TASK_ASSIGN", "HR", "MONEY"] };
+    expect(evaluate("archive", base({ leader: { ...leader, learningMode: true } })).reasons).toContain("Режим обучения: без вашего подтверждения ничего не делаю");
+    expect(evaluate("archive", base({ leader: { ...leader, learningMode: true }, approvedByLeader: true })).verdict).toBe("ALLOW");
+    expect(evaluate("reply", base({ leader: learning, category: "INVITATION", confidence: 0.95 })).verdict).toBe("ALLOW");
+    expect(evaluate("assign", base({ leader: learning, trustScope: "TASK_ASSIGN" })).verdict).toBe("ALLOW");
+  });
+
+  it("режим обучения не ослабляет: доверие не действует на защищённые категории и деньги", () => {
+    const learning = { ...leader, learningMode: true, trustedScopes: ["HR", "MONEY", "TASK_ASSIGN"] };
+    expect(evaluate("reply", base({ leader: learning, category: "HR", confidence: 0.99 })).verdict).toBe("APPROVE");
+    expect(evaluate("assign", base({ leader: learning, category: "CLIENT_COMMITMENT", confidence: 0.99, trustScope: "TASK_ASSIGN" })).verdict).toBe("APPROVE");
+    expect(evaluate("reply", base({ leader: learning, trustScope: "MONEY" })).verdict).toBe("APPROVE");
+  });
+
   it("письмо без категории — fail closed", () => {
     expect(evaluate("send", base({ message: msg("x"), category: null })).verdict).toBe("APPROVE");
   });

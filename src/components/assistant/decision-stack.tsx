@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { DraftText } from "./draft-text";
 import type { DecisionCard, Tone } from "@/core/dashboard";
 
 const TAG: Record<Tone, string> = {
@@ -95,8 +96,8 @@ export function DecisionStack({ leaderId, decisions, delegates }: { leaderId: st
 
         {cur.draft && (
           <blockquote className="rounded-[14px] border border-line bg-ink px-[18px] py-4">
-            <div className="mb-1.5 text-xs text-dim">Что я предлагаю</div>
-            <div className="font-serif text-[17px] leading-normal">{cur.draft}</div>
+            <div className="mb-2 text-xs text-dim">Что я предлагаю</div>
+            <DraftText text={cur.draft} />
           </blockquote>
         )}
         {cur.reasons.length > 0 && (
@@ -118,7 +119,7 @@ export function DecisionStack({ leaderId, decisions, delegates }: { leaderId: st
               id="edited"
               value={edited}
               onChange={(e) => setEdited(e.target.value)}
-              rows={4}
+              rows={Math.min(14, Math.max(4, edited.split("\n").length + 1))}
               className="rounded-[14px] border border-line-strong bg-ink p-3 font-serif text-[17px] outline-none"
             />
             <div className="flex gap-2.5">

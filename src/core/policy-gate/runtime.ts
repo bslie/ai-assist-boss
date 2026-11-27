@@ -40,9 +40,15 @@ export async function getConnectorToolPermission(
 export async function loadGateLeader(db: PrismaClient, leaderId: string): Promise<GateLeader> {
   const l = await db.leader.findFirstOrThrow({
     where: { id: leaderId },
-    select: { budgetAutoLimit: true, protectedBlocks: true, shadowMode: true },
+    select: { budgetAutoLimit: true, protectedBlocks: true, shadowMode: true, learningMode: true, trustedScopes: true },
   });
-  return { budgetAutoLimit: l.budgetAutoLimit, protectedBlocks: l.protectedBlocks, shadowMode: l.shadowMode };
+  return {
+    budgetAutoLimit: l.budgetAutoLimit,
+    protectedBlocks: l.protectedBlocks,
+    shadowMode: l.shadowMode,
+    learningMode: l.learningMode,
+    trustedScopes: l.trustedScopes,
+  };
 }
 
 /** Каждый вердикт — в журнал с причинами. `savedMinutes` начисляется только за ALLOW. */
