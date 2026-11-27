@@ -12,10 +12,12 @@ import { createProviderOrReplay } from "@/core/llm/providers";
 import { dbUsageSink } from "@/core/llm/usage-db";
 import { tick, type JobQueue, type RoutineJob } from "@/core/scheduler";
 import { processRoutineJob } from "@/core/telegram/morning";
+import { ensureDeadlineGuard } from "@/core/tasks/lifecycle";
 import { activeMailConnectors } from "@/core/mail/poll";
 import { pollWithPipeline } from "@/core/mail/pipeline";
 import { prepareAgenda } from "@/core/meetings/agenda";
 import { dueAvatarMeetings, launchAvatarBot } from "@/core/meetings/recall";
+import { dueDossiers, sendDossier } from "@/core/meetings/dossier";
 import { relayEvent } from "@/core/telegram/relay";
 import type { StateStore } from "@/core/telegram/types";
 import { db } from "@/db/client";
@@ -72,7 +74,7 @@ async function main() {
   const worker = new Worker<RoutineJob>(
     QUEUE,
     async (job) => {
-      const res = await processRoutineJob({ db, messenger }, job.data);
+      const res = await processRoutineJob({ db, messenger, llm }, job.data);
       log(`рутина ${job.data.code}:`, JSON.stringify(res));
       return res;
     },
@@ -86,6 +88,10 @@ async function main() {
       .then((what) => what && log(`событие ${e.type}: ${what}`))
       .catch((err) => log(`событие ${e.type}: ошибка:`, (err as Error).message));
   });
+
+  // Рутина контроля сроков есть не в каждом профиле: доводим до нужного набора для всех руководителей.
+  const created = await ensureDeadlineGuard(db).catch(() => 0);
+  if (created > 0) log(`создана рутина контроля сроков: ${created}`);
 
   const runTick = async () => {
     try {
@@ -125,6 +131,11 @@ async function main() {
     if (launching) return;
     launching = true;
     try {
+      // Досье перед 1:1 и встречей с партнёром (SPEC 4.5.4, P2): те же 2 минуты, демо-время.
+      for (const m of await dueDossiers(db)) {
+        const r = await sendDossier(db, messenger, m.leaderId, m.id);
+        if (r === "sent") log(`досье ${m.id}: отправлено`);
+      }
       for (const m of await dueAvatarMeetings(db)) {
         await prepareAgenda(db, m.leaderId, m.id);
         const res = await launchAvatarBot(db, m.leaderId, m.id);

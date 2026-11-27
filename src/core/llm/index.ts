@@ -71,10 +71,23 @@ export interface Pricing {
   outputPerMillionRub: number;
 }
 
+/**
+ * Цены из env: LLM_PRICE_INPUT_RUB_PER_M / LLM_PRICE_OUTPUT_RUB_PER_M (₽ за 1M токенов).
+ * Не заданы или не числа → цены нет, стоимость 0 (токены в UsageLog всё равно пишутся).
+ */
+export function pricingFromEnv(env: Record<string, string | undefined> = process.env): Pricing | undefined {
+  if (!env.LLM_PRICE_INPUT_RUB_PER_M && !env.LLM_PRICE_OUTPUT_RUB_PER_M) return undefined;
+  const input = Number(env.LLM_PRICE_INPUT_RUB_PER_M ?? 0);
+  const output = Number(env.LLM_PRICE_OUTPUT_RUB_PER_M ?? 0);
+  if (!Number.isFinite(input) || !Number.isFinite(output) || input < 0 || output < 0) return undefined;
+  return { inputPerMillionRub: input, outputPerMillionRub: output };
+}
+
 export interface LlmClientOptions {
   provider: LlmProvider;
   cache?: LlmCache;
   usage?: UsageSink;
+  /** По умолчанию — из env (`pricingFromEnv`). */
   pricing?: Pricing;
 }
 
@@ -94,7 +107,8 @@ export class LlmClient {
   constructor(private readonly opts: LlmClientOptions) {}
 
   async generateStructured<S extends z.ZodType>(req: StructuredRequest<S>): Promise<z.infer<S>> {
-    const { provider, cache, usage, pricing } = this.opts;
+    const { provider, cache, usage } = this.opts;
+    const pricing = this.opts.pricing ?? pricingFromEnv();
     const temperature = req.temperature ?? 0;
     const key = req.cacheKey
       ? createHash("sha256")

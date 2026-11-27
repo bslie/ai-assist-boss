@@ -433,7 +433,7 @@ function Users({ viewerLogin }: { viewerLogin: string }) {
 const SCENARIOS: { id: string; label: string }[] = [
   { id: "INGEST_DATASET", label: "Загрузить датасет" },
   { id: "TRIGGER_MORNING", label: "Утренний план" },
-  { id: "TRIGGER_EMAIL_BATCH", label: "Разбор писем" },
+  { id: "TRIGGER_EMAIL_BATCH", label: "Новые письма (демо-пачка)" },
   { id: "RUN_MEETING_TRANSCRIPT", label: "Протокол встречи" },
   { id: "TRIGGER_WEEKLY", label: "Итог недели" },
 ];

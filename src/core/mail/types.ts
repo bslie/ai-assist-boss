@@ -32,6 +32,28 @@ export interface MailConnector {
 /** Сколько назад смотрим при первом опросе, чтобы не затопить руководителя старой перепиской. */
 export const FIRST_POLL_DAYS = 3;
 
+/** Заголовок, которым `scripts/send-dataset-emails.ts` передаёт настоящего отправителя письма датасета. */
+export const DATASET_FROM_HEADER = "x-dataset-from";
+
+/**
+ * Демо: все письма датасета уходят из одного тестового ящика, а отправитель (руководитель, финконтроль, клиент)
+ * нужен пайплайну как есть. Заголовок принимается только если письмо реально пришло с адреса
+ * `MAIL_DATASET_SENDER`; без этой переменной или от другого адреса он игнорируется (иначе любой мог бы
+ * выдать себя за сотрудника).
+ */
+export function claimedSender(
+  actual: string,
+  header: unknown,
+  trusted: string | undefined = process.env.MAIL_DATASET_SENDER,
+): { address: string; name: string } | null {
+  if (!trusted || typeof header !== "string") return null;
+  if (actual.trim().toLowerCase() !== trusted.trim().toLowerCase()) return null;
+  const m = /^\s*(?:"?([^"<]*?)"?\s*)?<([^<>\s@]+@[^<>\s@]+)>\s*$/.exec(header) ?? /^\s*()([^<>\s@]+@[^<>\s@]+)\s*$/.exec(header);
+  if (!m) return null;
+  const address = m[2].toLowerCase();
+  return { address, name: m[1]?.trim() || address };
+}
+
 export function htmlToText(html: string): string {
   return html
     .replace(/<(style|script)[\s\S]*?<\/\1>/gi, " ")

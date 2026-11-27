@@ -252,7 +252,8 @@ describe.skipIf(!dbUp)("поручения сотрудникам через Pol
       expect(await press(deps, chat("E"), `t:a:${t.id}`)).toBe("Принято");
       expect((await db.task.findUniqueOrThrow({ where: { id: t.id } })).status).toBe("ACCEPTED");
       expect(edits.at(-1)?.text).toContain("Принято в работу");
-      expect(edits.at(-1)?.buttons).toBeUndefined();
+      // после принятия предлагается сдать результат
+      expect(edits.at(-1)?.buttons?.flat().map((x) => x.text)).toEqual(["Сдать результат", "Не успею"]);
       expect(sent.find((s) => s.chatId === chat("L"))?.text).toContain("Ольга Смирнова принял задачу");
       expect(await press(deps, chat("E"), `t:a:${t.id}`)).toBe("Уже принято");
     });
@@ -282,11 +283,10 @@ describe.skipIf(!dbUp)("поручения сотрудникам через Pol
       expect((await db.task.findUniqueOrThrow({ where: { id: t.id } })).status).toBe("NEW");
     });
 
-    it("«Не успею»: руководителю уходит уведомление, статус и срок не меняются", async () => {
-      const { deps, sent, t } = await setup();
+    it("«Не успею»: бот просит дату; пока дата не названа, статус и срок не меняются", async () => {
+      const { deps, t } = await setup();
       const before = await db.task.findUniqueOrThrow({ where: { id: t.id } });
-      expect(await press(deps, chat("E"), `t:r:${t.id}`)).toBe("Сообщила руководителю");
-      expect(sent.find((s) => s.chatId === chat("L"))?.text).toContain("не успеет");
+      expect(await press(deps, chat("E"), `t:r:${t.id}`)).toBe("Жду новый срок");
       const after = await db.task.findUniqueOrThrow({ where: { id: t.id } });
       expect(after.status).toBe(before.status);
       expect(after.dueAt.getTime()).toBe(before.dueAt.getTime());

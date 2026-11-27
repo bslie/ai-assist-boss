@@ -60,7 +60,7 @@ export function createConsoleMessenger(log: (s: string) => void = console.log): 
 export function createBot(token: string, db: PrismaClient, state: StateStore, opts: { learns?: boolean; llm?: LlmClient } = {}): Bot {
   const bot = new Bot(token);
   const messenger = createMessenger(bot.api);
-  const deps = { db, messenger, state, learns: opts.learns };
+  const deps = { db, messenger, state, learns: opts.learns, llm: opts.llm };
   const html = { parse_mode: "HTML" as const };
 
   // Telegram Business. Идёт раньше фильтра личных чатов: у business_connection нет chat.
@@ -134,7 +134,7 @@ export function createBot(token: string, db: PrismaClient, state: StateStore, op
     const reply = await handleText(deps, String(ctx.chat.id), ctx.message.text, {
       replyToMessageId: replyTo === undefined ? undefined : String(replyTo),
     });
-    await ctx.reply(reply, html);
+    if (reply) await ctx.reply(reply, html);
   });
 
   bot.catch((err) => console.error("[telegram] ошибка обработчика:", err.error));

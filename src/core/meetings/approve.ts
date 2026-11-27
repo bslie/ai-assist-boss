@@ -2,7 +2,7 @@
  * Исполнение утверждённого протокола (SPEC 4.5.1): рассылка участникам, поручения исполнителям.
  * Всё внешнее идёт через Policy Gate: письмо — как `mail.send_reply` (запрет прав подключения останавливает),
  * поручения создаются как Task, а их отправка исполнителям сама проходит шлюз (tasks/dispatch).
- * Создание следующей встречи в календаре — P1 (подбор слота), здесь не делается.
+ * Следующая встреча серии создаётся подбором слота (next.ts) после поручений и рассылки.
  */
 import { z } from "zod";
 import type { PrismaClient } from "@/generated/prisma/client";
@@ -11,6 +11,7 @@ import { publishEvent } from "../events";
 import { ensureSignature } from "../learning/draft";
 import { createMailConnector, isMailType, MAIL_TYPES } from "../mail/factory";
 import type { MailConnector } from "../mail/types";
+import { scheduleNextMeeting, type NextMeetingResult } from "./next";
 import { evaluate, getConnectorToolPermission, loadGateLeader, logVerdict } from "../policy-gate";
 
 const DAY = 86_400_000;
@@ -36,7 +37,7 @@ const PayloadSchema = z.object({
 
 export type ProtocolExecResult =
   | { applicable: false; reason: string }
-  | { applicable: true; tasksCreated: number; mailsSent: number; mailsFailed: number; mailNote: string | null };
+  | { applicable: true; tasksCreated: number; mailsSent: number; mailsFailed: number; mailNote: string | null; nextMeeting: string };
 
 export async function executeApprovedProtocol(
   db: PrismaClient,
@@ -85,6 +86,8 @@ export async function executeApprovedProtocol(
   }
 
   const mail = await sendProtocolMail(db, leaderId, meeting, markdown, deps.connector);
+  // Сбой подбора слота не отменяет утверждённый протокол: поручения и рассылка уже выполнены.
+  const next = await scheduleNextMeeting(db, leaderId, meetingId).catch((e): NextMeetingResult => ({ status: "skipped", reason: (e as Error).message }));
 
   const saved = await db.leader
     .findFirstOrThrow({ where: { id: leaderId }, select: { savedMinutesConfig: true } })
@@ -101,7 +104,7 @@ export async function executeApprovedProtocol(
     },
   });
   await publishEvent(leaderId, { type: "metrics.updated", data: {} });
-  return { applicable: true, tasksCreated, mailsSent: mail.sent, mailsFailed: mail.failed, mailNote: mail.note };
+  return { applicable: true, tasksCreated, mailsSent: mail.sent, mailsFailed: mail.failed, mailNote: mail.note, nextMeeting: next.status };
 }
 
 async function sendProtocolMail(

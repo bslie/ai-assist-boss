@@ -2,6 +2,7 @@
 import type { PrismaClient } from "@/generated/prisma/client";
 import { publishEvent } from "../events";
 import { createDraftGenerator } from "../learning/draft";
+import { createCriteriaGenerator } from "../tasks/criteria";
 import { LlmClient, MemoryCache } from "../llm";
 import { createProviderOrReplay } from "../llm/providers";
 import { dbUsageSink } from "../llm/usage-db";
@@ -20,6 +21,7 @@ export async function pollWithPipeline(db: PrismaClient, leaderId: string, conne
   const res = await pollConnector(db, leaderId, connectorId, {
     llm,
     draft: createDraftGenerator(db, llm),
+    criteria: createCriteriaGenerator(llm),
     emit: (e) => publishEvent(leaderId, e),
   });
   if (res.ok && res.fetched > 0) await publishEvent(leaderId, { type: "metrics.updated", data: {} });

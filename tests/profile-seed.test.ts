@@ -84,7 +84,7 @@ describe("seedLeader (Postgres)", () => {
     expect(await db.employee.count({ where: { leaderId: id } })).toBe(11);
     expect(await db.meeting.count({ where: { leaderId: id } })).toBe(50);
     expect(await db.task.count({ where: { leaderId: id } })).toBe(12);
-    expect(await db.routine.count({ where: { leaderId: id } })).toBe(2);
+    expect(await db.routine.count({ where: { leaderId: id } })).toBe(3); // утренний план, итог недели и контроль сроков
 
     const locked = await db.rule.findMany({ where: { leaderId: id, isSystemLocked: true } });
     expect(locked.map((r) => (r.condition as { category: string }).category).sort()).toEqual(

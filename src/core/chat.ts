@@ -14,6 +14,7 @@ import { ensureSignature } from "./learning/draft";
 import { isSafeRule } from "./learning/extract";
 import type { LlmClient } from "./llm";
 import { createRule } from "./rules";
+import { createTask } from "./tasks/registry";
 
 export const ChatInputSchema = z.object({
   text: z.string().trim().min(1).max(1000),
@@ -37,13 +38,15 @@ export interface ChatReply {
 }
 
 const ActionSchema = z.object({
-  kind: z.enum(["RULE", "STYLE", "REPLY"]),
+  kind: z.enum(["RULE", "STYLE", "REPLY", "TASK"]),
   /** RULE: что делать с письмами категории. */
   rule: z.object({ name: z.string().min(1).max(120), category: z.enum(EMAIL_CATEGORIES), action: z.enum(EMAIL_ACTIONS) }).nullable(),
   /** STYLE: правило о манере письма одним предложением. */
   style: z.string().max(240).nullable(),
   /** REPLY: кому (как назвал руководитель) и что ответить по смыслу. */
   reply: z.object({ to: z.string().min(1), gist: z.string().min(1).max(500) }).nullable(),
+  /** TASK: кому (как назвал руководитель), что сделать и срок (ISO 8601 +03:00, null — срок не назван). */
+  task: z.object({ assignee: z.string().min(1), title: z.string().min(3).max(200), dueAt: z.string().nullable() }).nullable(),
 });
 
 const AgentSchema = z.object({
@@ -60,6 +63,7 @@ const SYSTEM = [
   "Действия (actions) добавляй только когда руководитель явно просит: RULE — как поступать с письмами вида («вендоров в архив»), STYLE — манера письма («пиши короче»), REPLY — «ответь <кому>, что …».",
   "Для RULE: category из списка и action (ASK_LEADER — спросить меня, DIGEST — в сводку, DELEGATE — передать, IGNORE — в архив, AUTO — решить самой). Категории: " +
     EMAIL_CATEGORIES.map((c) => `${c} (${CATEGORY_HELP[c]})`).join("; ") + ".",
+  "TASK — «поставь <кому> задачу <что> до <когда>»: assignee как назвал руководитель, title коротко, dueAt в ISO 8601 с +03:00 или null, если срок не назван (не выдумывай срок).",
   "STYLE — одно предложение в повелительном наклонении. REPLY.gist — суть ответа без выдуманных деталей.",
   "Если есть действие, answer оставь пустой строкой: результат действия сообщит система. Не утверждай, что что-то запомнила или отправила.",
 ].join(" ");
@@ -127,6 +131,7 @@ export async function handleChat(
     if (a.kind === "RULE" && a.rule) replies.push(await addRule(db, leaderId, text, a.rule));
     else if (a.kind === "STYLE" && a.style) replies.push(await addStyle(db, leaderId, a.style));
     else if (a.kind === "REPLY" && a.reply) replies.push(await proposeReply(db, llm, leaderId, a.reply));
+    else if (a.kind === "TASK" && a.task) replies.push(await addTask(db, llm, leaderId, a.task));
   }
   if (replies.length === 0) return { text: res.answer.trim() || HELP_TEXT };
   const lead = replies.length > 1 || !res.answer.trim() ? [] : [res.answer.trim()];
@@ -173,6 +178,22 @@ async function addStyle(db: PrismaClient, leaderId: string, style: string): Prom
   if (!dup) await db.memory.create({ data: { leaderId, sourceType: "EXPLICIT", ruleText: style, scope: "GLOBAL", isActive: true } });
   await publishEvent(leaderId, { type: "metrics.updated", data: {} });
   return { text: dup ? `Это правило у меня уже есть: «${style}».` : `Запомнила: «${style}». Буду учитывать в новых черновиках.` };
+}
+
+/** Поручение из чата: сам чат ничего не отправляет, исполнителю оно уйдёт через Policy Gate. */
+async function addTask(db: PrismaClient, llm: LlmClient, leaderId: string, task: { assignee: string; title: string; dueAt: string | null }): Promise<ChatReply> {
+  const keys = task.assignee.split(/s+/).map(stem);
+  const people = await db.employee.findMany({ where: { leaderId, relationType: "SUBORDINATE" }, select: { id: true, name: true } });
+  const hits = people.filter((p) => keys.some((k) => norm(p.name).includes(k)));
+  if (hits.length === 0) return { text: `Не нашла среди ваших сотрудников «${task.assignee}». Назовите, кому поставить задачу.` };
+  if (hits.length > 1) return { text: `Под «${task.assignee}» подходят несколько человек: ${hits.map((h) => h.name).join(", ")}. Уточните, кому.` };
+  if (!task.dueAt) return { text: `Какой срок поставить ${hits[0].name} по задаче «${task.title}»? Без срока я задачу не ставлю.` };
+  const due = new Date(task.dueAt);
+  if (Number.isNaN(due.getTime())) return { text: "Не поняла срок. Скажите, например: «до пятницы 18:00»." };
+
+  const res = await createTask(db, llm, leaderId, { title: task.title, description: "", assigneeId: hits[0].id, dueAt: due, isClientCommitment: false, isTypical: false });
+  if (!res.ok) return { text: `Не поставила задачу: ${res.message}.` };
+  return { text: `Поставила задачу «${task.title}» для ${hits[0].name}. Критерий готовности сформулировала, исполнитель получит её в Telegram.` };
 }
 
 const DraftSchema = z.object({ text: z.string().min(1).max(2000) });

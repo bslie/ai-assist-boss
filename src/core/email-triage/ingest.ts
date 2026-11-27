@@ -8,8 +8,9 @@ import type { PrismaClient, Prisma } from "@/generated/prisma/client";
 import { clock } from "../clock";
 import type { LeaderEvent } from "../events";
 import type { LlmClient } from "../llm";
-import type { RelationType, RiskContext } from "../policy-gate";
-import { triageEmail, type CategoryRule, type EmailAction, type EmailCategory } from "./classify";
+import { loadGateLeader, logVerdict, type RelationType, type RiskContext } from "../policy-gate";
+import { BUDGET_TOOL, budgetAutoApproval } from "./budget";
+import { matchRule, triageEmail, type CategoryRule, type EmailAction, type EmailCategory } from "./classify";
 import { threadKey, type RawEmail } from "./threads";
 
 const DEFAULT_SAVED_MINUTES: Record<string, number> = {
@@ -17,6 +18,8 @@ const DEFAULT_SAVED_MINUTES: Record<string, number> = {
   DIGEST: 3,
   DELEGATE: 8,
   AUTO: 5,
+  /** Деньги в пределах порога: руководитель не читает письмо и не отвечает (как утверждённый черновик). */
+  AUTO_BUDGET: 6,
   REPEAT_LINKED: 2,
 };
 
@@ -39,6 +42,8 @@ export interface IngestOptions {
   /** Событие для SSE (decision.created, email.processed). Ошибки подписчика не ломают разбор. */
   emit?: (event: LeaderEvent) => Promise<void> | void;
   draft?: (ctx: { leaderId: string; email: IncomingEmail; summary: string }) => Promise<string | null>;
+  /** Измеримый критерий готовности для поручения (SPEC 4.3.1). Ошибка модели → текст по умолчанию, поручение не теряется. */
+  criteria?: (ctx: { leaderId: string; email: IncomingEmail; summary: string }) => Promise<string | null>;
 }
 
 export interface IngestStats {
@@ -74,6 +79,7 @@ export async function ingestEmails(
   const rules = await db.rule.findMany({ where: { leaderId } });
   const now = clock.now();
 
+  const gateLeader = await loadGateLeader(db, leaderId);
   const risk: RiskContext = {
     leaderEmail: leader.email,
     org: employees.map((e) => ({
@@ -84,8 +90,10 @@ export async function ingestEmails(
   };
   const categoryRules: CategoryRule[] = [];
   for (const r of rules) {
-    const cat = (r.condition as { category?: EmailCategory } | null)?.category;
-    if (cat && (!r.expiresAt || r.expiresAt > now)) categoryRules.push({ category: cat, action: r.action });
+    const cond = (r.condition as { category?: EmailCategory; senderEmail?: string } | null) ?? {};
+    if ((cond.category || cond.senderEmail) && (!r.expiresAt || r.expiresAt > now)) {
+      categoryRules.push({ category: cond.category, senderEmail: cond.senderEmail, action: r.action });
+    }
   }
   const minutes = {
     ...DEFAULT_SAVED_MINUTES,
@@ -181,7 +189,15 @@ export async function ingestEmails(
       risk,
       categoryRules,
     );
-    const { classification: c, signals, decision } = result;
+    const { classification: c, signals } = result;
+    let decision = result.decision;
+
+    // Деньги в пределах порога руководителя (SPEC 4.1, шаг 3): единственный случай, когда MONEY уходит не к нему.
+    const budget = budgetAutoApproval({ leader: gateLeader, risk, input: { leaderId, threadKey: key, senderEmail: email.senderEmail, subject: email.subject, body: email.body, recipients: email.recipients }, classification: c, signals, decision });
+    if (budget) {
+      decision = budget.decision;
+      await logVerdict(db, leaderId, BUDGET_TOOL, budget.verdict, { metadata: { emailId: email.externalId ?? null, amount: c.amount } });
+    }
 
     let decisionId: string | null = null;
     let taskId: string | null = null;
@@ -206,7 +222,12 @@ export async function ingestEmails(
       stats.decisionsCreated++;
       await opts.emit?.({ type: "decision.created", data: { id: d.id } });
     } else if (decision.action === "DELEGATE") {
-      const rule = rules.find((r) => (r.condition as { category?: string } | null)?.category === c.category && r.delegateToArea);
+      const live = rules.filter((r) => !r.expiresAt || r.expiresAt > now);
+      const rule = matchRule(
+        live.filter((r) => r.delegateToArea).map((r) => ({ ...(r.condition as { category?: string; senderEmail?: string } | null), delegateToArea: r.delegateToArea })),
+        c.category,
+        email.senderEmail,
+      );
       const assignee = rule?.delegateToArea
         ? await db.employee.findFirst({
             where: { leaderId, responsibilityArea: { contains: rule.delegateToArea, mode: "insensitive" } },
@@ -214,14 +235,14 @@ export async function ingestEmails(
         : null;
       if (assignee) {
         const due = parseDeadline(c.deadline, new Date(now.getTime() + 24 * 3_600_000));
+        const criteria = (await opts.criteria?.({ leaderId, email, summary: c.summary }).catch(() => null)) ?? null;
         const t = await db.task.create({
           data: {
             leaderId,
             assigneeId: assignee.id,
             title: email.subject,
             description: c.summary,
-            // TODO: LLM-формулировка измеримого критерия (SPEC 4.3.1).
-            acceptanceCriteria: `Ответ или результат по письму «${email.subject}» передан отправителю`,
+            acceptanceCriteria: criteria ?? `Ответ или результат по письму «${email.subject}» передан отправителю`,
             sourceType: "EMAIL",
             sourceRefId: email.externalId ?? null,
             isClientCommitment: false,
@@ -251,16 +272,18 @@ export async function ingestEmails(
     if (taskId) await opts.emit?.({ type: "task.updated", data: { id: taskId, created: true } });
 
     const delegatedWithoutAssignee = decision.action === "DELEGATE" && !taskId;
+    // Деньги под порогом считаем отдельно от подтверждённых встреч: иначе «Подтвердила N встреч» врёт.
+    const logAction = budget ? "AUTO_BUDGET" : decision.action;
     await db.activityLog.create({
       data: {
           createdAt: clock.now(),
         leaderId,
         pipeline: "EMAIL",
-        action: decision.action,
+        action: logAction,
         reason: [c.summary, ...decision.reasons, delegatedWithoutAssignee ? "Исполнитель по зоне ответственности не найден" : ""]
           .filter(Boolean)
           .join(". "),
-        savedMinutes: decision.action === "ASK_LEADER" || delegatedWithoutAssignee ? 0 : (minutes[decision.action] ?? 0),
+        savedMinutes: decision.action === "ASK_LEADER" || delegatedWithoutAssignee ? 0 : (minutes[logAction] ?? 0),
         metadata: { category: c.category, confidence: c.confidence, signals, emailId: email.externalId ?? null },
       },
     });

@@ -52,8 +52,24 @@ export const DEFAULT_ROUTES: Readonly<Record<EmailCategory, EmailAction>> = {
 
 /** Правило профиля/пользователя: может менять действие, но не ослаблять защиту. */
 export interface CategoryRule {
-  category: EmailCategory;
+  /** Правило по категории; нет категории — правило по отправителю. */
+  category?: EmailCategory;
+  /** Правило по отправителю («письма от Орлова присылай сразу»); важнее правила по категории. */
+  senderEmail?: string;
   action: EmailAction;
+}
+
+/** Какое правило применимо к письму: сначала по отправителю, затем по категории. */
+export function matchRule<T extends { category?: string; senderEmail?: string }>(
+  rules: readonly T[] | undefined,
+  category: string | null,
+  senderEmail: string | undefined,
+): T | undefined {
+  const sender = senderEmail?.trim().toLowerCase();
+  return (
+    rules?.find((r) => r.senderEmail && sender && r.senderEmail.trim().toLowerCase() === sender) ??
+    rules?.find((r) => !r.senderEmail && r.category && r.category === category)
+  );
 }
 
 export interface RouteDecision {
@@ -66,6 +82,7 @@ export function routeEmail(args: {
   confidence: number;
   signals: readonly RiskSignal[];
   rules?: readonly CategoryRule[];
+  senderEmail?: string;
 }): RouteDecision {
   const reasons: string[] = [];
 
@@ -85,7 +102,7 @@ export function routeEmail(args: {
 
   let action = DEFAULT_ROUTES[args.category];
   // Деньги: правило может только оставить ASK_LEADER. Порог бюджета решает Policy Gate, не правило.
-  const rule = args.category === "MONEY" ? undefined : args.rules?.find((r) => r.category === args.category);
+  const rule = args.category === "MONEY" ? undefined : matchRule(args.rules, args.category, args.senderEmail);
   // Остальные защищённые категории отсечены выше, сюда попадают только незащищённые.
   if (rule) {
     action = rule.action;
@@ -154,6 +171,7 @@ export async function triageEmail(
     confidence: classification.confidence,
     signals,
     rules,
+    senderEmail: input.senderEmail,
   });
   return { classification, signals, decision };
 }

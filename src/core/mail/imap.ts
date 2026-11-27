@@ -3,7 +3,7 @@ import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import nodemailer from "nodemailer";
 import type { IncomingEmail } from "../email-triage/ingest";
-import { FIRST_POLL_DAYS, htmlToText, type MailConnector, type MailFetch, type OutgoingReply } from "./types";
+import { DATASET_FROM_HEADER, FIRST_POLL_DAYS, claimedSender, htmlToText, type MailConnector, type MailFetch, type OutgoingReply } from "./types";
 
 export interface ImapConfig {
   email: string;
@@ -77,11 +77,12 @@ export class ImapMailConnector implements MailConnector {
           const recipients = [...(Array.isArray(p.to) ? p.to : p.to ? [p.to] : []), ...(Array.isArray(p.cc) ? p.cc : p.cc ? [p.cc] : [])]
             .flatMap((a) => a.value.map((v) => v.address?.toLowerCase()))
             .filter((x): x is string => Boolean(x));
+          const claimed = claimedSender(address, p.headers.get(DATASET_FROM_HEADER));
           emails.push({
             externalId: `imap:${validity}:${msg.uid}`,
             messageId: p.messageId,
-            senderEmail: address,
-            senderName: from?.name || address,
+            senderEmail: claimed?.address ?? address,
+            senderName: claimed?.name ?? (from?.name || address),
             subject: p.subject?.trim() || "(без темы)",
             body: (p.text ?? (typeof p.html === "string" ? htmlToText(p.html) : "")).trim(),
             receivedAt: p.date ?? (msg.internalDate instanceof Date ? msg.internalDate : new Date()),

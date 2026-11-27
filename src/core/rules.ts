@@ -7,15 +7,19 @@ import type { Prisma, PrismaClient } from "@/generated/prisma/client";
 import { EMAIL_ACTIONS, EMAIL_CATEGORIES } from "./email-triage/classify";
 import { isLockedCategory } from "./policy-gate";
 
-export const CreateRuleSchema = z.object({
-  name: z.string().min(1).max(120),
-  description: z.string().min(1).max(500),
-  category: z.enum(EMAIL_CATEGORIES),
-  action: z.enum(EMAIL_ACTIONS),
-  delegateToArea: z.string().min(1).nullable().optional(),
-  notifyImmediately: z.boolean().optional(),
-  expiresAt: z.coerce.date().nullable().optional(),
-});
+export const CreateRuleSchema = z
+  .object({
+    name: z.string().min(1).max(120),
+    description: z.string().min(1).max(500),
+    category: z.enum(EMAIL_CATEGORIES).optional(),
+    /** Правило по отправителю: письма этого адреса. Нужна категория или отправитель. */
+    senderEmail: z.string().email().optional(),
+    action: z.enum(EMAIL_ACTIONS),
+    delegateToArea: z.string().min(1).nullable().optional(),
+    notifyImmediately: z.boolean().optional(),
+    expiresAt: z.coerce.date().nullable().optional(),
+  })
+  .refine((v) => v.category || v.senderEmail, { message: "Нужна категория или отправитель" });
 export type CreateRuleInput = z.infer<typeof CreateRuleSchema>;
 
 export const PatchSchema = z.discriminatedUnion("kind", [
@@ -39,7 +43,7 @@ export const PatchSchema = z.discriminatedUnion("kind", [
 ]);
 export type PatchInput = z.infer<typeof PatchSchema>;
 
-export type RuleError = { ok: false; code: "NOT_FOUND" | "LOCKED"; message: string };
+export type RuleError = { ok: false; code: "NOT_FOUND" | "LOCKED" | "INVALID"; message: string };
 export type RuleOk<T> = { ok: true; value: T };
 
 const LOCKED_CATEGORY_MSG = (c: string) =>
@@ -54,15 +58,23 @@ export async function listRules(db: PrismaClient, leaderId: string) {
 }
 
 export async function createRule(db: PrismaClient, leaderId: string, input: CreateRuleInput): Promise<RuleOk<{ id: string }> | RuleError> {
-  if (isLockedCategory(input.category) && input.action !== "ASK_LEADER") {
+  if (!input.category && !input.senderEmail) return { ok: false, code: "INVALID", message: "Нужна категория или отправитель" };
+  if (input.category && isLockedCategory(input.category) && input.action !== "ASK_LEADER") {
     return { ok: false, code: "LOCKED", message: LOCKED_CATEGORY_MSG(input.category) };
+  }
+  if (input.senderEmail && input.action !== "ASK_LEADER") {
+    // Письма вышестоящего руководства нельзя перевести в авто и по отправителю (SPEC инвариант 2).
+    const person = await db.employee.findFirst({ where: { leaderId, email: { equals: input.senderEmail, mode: "insensitive" } }, select: { relationType: true } });
+    if (person?.relationType === "MANAGER") {
+      return { ok: false, code: "LOCKED", message: "Письма руководства нельзя перевести в авто: допустимо только «спросить руководителя»." };
+    }
   }
   const rule = await db.rule.create({
     data: {
       leaderId,
       name: input.name,
       description: input.description,
-      condition: { category: input.category } as Prisma.InputJsonValue,
+      condition: { ...(input.category ? { category: input.category } : {}), ...(input.senderEmail ? { senderEmail: input.senderEmail.toLowerCase() } : {}) } as Prisma.InputJsonValue,
       action: input.action,
       delegateToArea: input.delegateToArea ?? null,
       notifyImmediately: input.notifyImmediately ?? false,

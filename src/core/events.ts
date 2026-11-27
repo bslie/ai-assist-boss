@@ -12,6 +12,8 @@ export const EVENT_TYPES = [
   "task.updated",
   "metrics.updated",
   "avatar.speak",
+  /** Запуск рутины вручную (демо-сценарии): исполняет воркер, у него есть Telegram. data.code — код рутины. */
+  "routine.trigger",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 
