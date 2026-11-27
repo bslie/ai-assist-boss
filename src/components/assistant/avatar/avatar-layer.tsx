@@ -2,14 +2,16 @@
 
 import { useEffect, useRef, useState } from "react";
 import { AvatarArt, type Accessory, type Mood, type Pose } from "./avatar-art";
-import { AVATAR_EVENT, SCENE_IDS, type AvatarCommand, type SceneId } from "./avatar-bus";
+import { AVATAR_EVENT, SCENE_IDS, avatarCommand, type AvatarCommand, type SceneId } from "./avatar-bus";
 import { renderSceneProps } from "./avatar-scenes";
 import { collectAvoid, findSafeSpot, overlapAt, type Vec } from "./avoid";
 
 const SIZE = 128; // px, квадрат
 const HALF = SIZE * 0.34; // видимая половина тела: по ней считаем, что он закрывает
 const MARGIN = 28;
-const IDLE_AFTER_MS = 25_000; // столько тишины, и считаем, что человек отошёл
+const IDLE_AFTER_MS = 5 * 60_000; // столько тишины, и считаем, что человек отошёл
+const STATUS_MIN_MS = 2_500; // фраза воркера висит не меньше, чтобы её успели прочитать
+const STATUS_MAX_MS = 3 * 60_000; // воркер мог упасть, не сняв фразу: сами её убираем
 const GAP_MS: [number, number] = [20_000, 45_000]; // пауза между сценками
 const STORAGE_KEY = "avatar:enabled";
 
@@ -55,8 +57,12 @@ function inside(p: Vec | null, r: DOMRect): boolean {
 //  2. Он никогда не перехватывает клики и фокус, обходит текст и кнопки, прячется за модалками.
 //  3. Если человек отошёл (IDLE_AFTER_MS без мыши, клавиатуры, кликов и прокрутки), он играет сценки
 //     с реквизитом. Любое действие пользователя мгновенно сворачивает сценку.
-export function AvatarLayer() {
+export function AvatarLayer({ leaderId }: { leaderId?: string }) {
   const [mounted, setMounted] = useState(false);
+  // Чем сейчас занят воркер: пока фраза есть, маскот сидит с ноутбуком и подписывает, что делает.
+  const [status, setStatus] = useState<string | null>(null);
+  const isWorking = status !== null;
+  const working = useRef(false);
   const [enabled, setEnabled] = useState(true);
   const [mood, setMood] = useState<Mood>("idle");
   const [view, setView] = useState<View>(NO_VIEW);
@@ -96,6 +102,59 @@ export function AvatarLayer() {
       window.removeEventListener(AVATAR_EVENT, onCmd);
     };
   }, []);
+
+  // Фраза воркера: событие worker.activity по SSE плюс разовый запрос, чтобы увидеть задачу, начатую до открытия страницы.
+  useEffect(() => {
+    if (!mounted || !enabled || !leaderId) return;
+    let shownAt = 0;
+    let hideTimer = 0;
+    let maxTimer = 0;
+    const apply = (label: string | null) => {
+      window.clearTimeout(hideTimer);
+      if (label) {
+        if (!shownAt) shownAt = Date.now();
+        setStatus(label);
+        window.clearTimeout(maxTimer);
+        maxTimer = window.setTimeout(() => {
+          shownAt = 0;
+          setStatus(null);
+        }, STATUS_MAX_MS);
+        return;
+      }
+      hideTimer = window.setTimeout(() => {
+        shownAt = 0;
+        window.clearTimeout(maxTimer);
+        setStatus(null);
+      }, Math.max(0, STATUS_MIN_MS - (Date.now() - shownAt)));
+    };
+    const q = encodeURIComponent(leaderId);
+    fetch(`/api/worker/status?leaderId=${q}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: { label?: string | null } | null) => {
+        if (j?.label) apply(j.label);
+      })
+      .catch(() => {});
+    const es = new EventSource(`/api/stream?leaderId=${q}`);
+    es.addEventListener("worker.activity", (e) => {
+      try {
+        const d = JSON.parse((e as MessageEvent<string>).data) as { label?: unknown };
+        apply(typeof d.label === "string" && d.label ? d.label : null);
+      } catch {
+        /* битое событие индикатору не нужно */
+      }
+    });
+    return () => {
+      es.close();
+      window.clearTimeout(hideTimer);
+      window.clearTimeout(maxTimer);
+    };
+  }, [mounted, enabled, leaderId]);
+
+  // Воркер начал работу: маскот возвращается на стоянку (сценки в простое на это время не играют).
+  useEffect(() => {
+    working.current = isWorking;
+    if (isWorking) avatarCommand({ type: "home" });
+  }, [isWorking]);
 
   // Контроллер: физика, сценки, реакции на активность. Вся изменяемая кухня живёт в замыкании.
   useEffect(() => {
@@ -698,7 +757,7 @@ export function AvatarLayer() {
       if (!sceneBusy && !atHome && s.settled && now > stayUntil) park();
 
       // человек отошёл: время для сценки
-      if (!reduced && !sceneBusy && atHome && now - lastActive > IDLE_AFTER_MS && now > nextScene) {
+      if (!reduced && !sceneBusy && !working.current && atHome && now - lastActive > IDLE_AFTER_MS && now > nextScene) {
         startScene(pickScene());
       }
     }, 500);
@@ -724,11 +783,17 @@ export function AvatarLayer() {
 
   if (!mounted || !enabled) return null;
 
-  const props = view.scene ? renderSceneProps(view.scene) : null;
+  // Пока воркер занят, маскот сидит с ноутбуком и наушниками (как в сценке «code»); сценки простоя его не трогают.
+  const workLook = !view.scene && isWorking;
+  const props = view.scene ? renderSceneProps(view.scene) : workLook ? renderSceneProps("code") : null;
   const stageCls = view.leaving ? "avp-stage avp-leaving" : "avp-stage";
 
   return (
     <>
+      {/* Экранным дикторам: маскот скрыт от них, а чем занят помощник, сообщаем здесь. */}
+      <div role="status" className="sr-only">
+        {status ?? ""}
+      </div>
       <div
         ref={gooRef}
         className="avatar-goo"
@@ -787,9 +852,37 @@ export function AvatarLayer() {
             {bubble.text}
           </div>
         )}
+        {status && (
+          <div
+            role="presentation"
+            className="avatar-status"
+            style={{
+              position: "absolute",
+              top: "50%",
+              right: "100%",
+              transform: "translateY(-50%)",
+              marginRight: 4,
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              width: "max-content",
+              maxWidth: 240,
+              padding: "7px 12px",
+              borderRadius: 999,
+              background: "rgba(255,255,255,.94)",
+              color: "#1f2533",
+              fontSize: 12.5,
+              lineHeight: 1.2,
+              boxShadow: "0 4px 18px rgba(0,0,0,.25)",
+            }}
+          >
+            <span className="avatar-status-dot" />
+            {status}
+          </div>
+        )}
         <div ref={bodyRef} style={{ width: "100%", height: "100%" }}>
           <div ref={shapeRef} style={{ width: "100%", height: "100%", transformOrigin: "50% 88%" }}>
-            <AvatarArt mood={mood} live={view.live} acc={view.acc} pose={view.pose} />
+            <AvatarArt mood={mood} live={view.live || workLook} acc={workLook ? "headphones" : view.acc} pose={workLook ? "type" : view.pose} />
           </div>
         </div>
         {props && <div className={stageCls}>{props.front}</div>}

@@ -78,3 +78,8 @@
 @media (prefers-reduced-motion: reduce) {
   .avp-stage *, .avatar-butterfly * { animation: none !important; }
 }
+
+/* Подпись «чем занят воркер» рядом с маскотом. */
+.avatar-status-dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: #f0b35a; animation: avs-pulse 1.1s ease-in-out infinite; }
+@keyframes avs-pulse { 0%, 100% { transform: scale(.7); opacity: .6; } 50% { transform: scale(1.15); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .avatar-status-dot { animation: none; } }

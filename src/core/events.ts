@@ -16,6 +16,8 @@ export const EVENT_TYPES = [
   "routine.trigger",
   /** Сообщение руководителю в Telegram от веба (ответ исполнителя по ссылке из письма). data.text — простой текст. */
   "leader.notify",
+  /** Чем сейчас занят воркер для этого руководителя. data.label — короткая фраза или null, если свободен. */
+  "worker.activity",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 

@@ -20,6 +20,7 @@ import { dueAvatarMeetings, launchAvatarBot } from "@/core/meetings/recall";
 import { collectRecallProtocol, dueTranscriptMeetings } from "@/core/meetings/transcript-poll";
 import { dueDossiers, sendDossier } from "@/core/meetings/dossier";
 import { relayEvent } from "@/core/telegram/relay";
+import { runActivity } from "@/core/worker-activity";
 import type { StateStore } from "@/core/telegram/types";
 import { db } from "@/db/client";
 import { createBot, createConsoleMessenger, createMessenger } from "./telegram";
@@ -75,7 +76,8 @@ async function main() {
   const worker = new Worker<RoutineJob>(
     QUEUE,
     async (job) => {
-      const res = await processRoutineJob({ db, messenger, llm }, job.data);
+      const routine = await db.routine.findFirst({ where: { id: job.data.routineId, leaderId: job.data.leaderId }, select: { title: true } });
+      const res = await runActivity(job.data.leaderId, routine ? `Выполняю: ${routine.title}` : "Выполняю рутину", () => processRoutineJob({ db, messenger, llm }, job.data));
       log(`рутина ${job.data.code}:`, JSON.stringify(res));
       return res;
     },
@@ -112,7 +114,7 @@ async function main() {
     polling = true;
     try {
       for (const c of await activeMailConnectors(db)) {
-        const res = await pollWithPipeline(db, c.leaderId, c.id);
+        const res = await runActivity(c.leaderId, "Проверяю почту", () => pollWithPipeline(db, c.leaderId, c.id));
         if (res.ok) {
           if (res.fetched > 0) log(`почта ${c.id}: писем ${res.fetched}, карточек ${res.stats.decisionsCreated}`);
         } else if (!res.skipped) log(`почта ${c.id}: ${res.message}`);
@@ -134,12 +136,14 @@ async function main() {
     try {
       // Досье перед 1:1 и встречей с партнёром (SPEC 4.5.4, P2): те же 2 минуты, демо-время.
       for (const m of await dueDossiers(db)) {
-        const r = await sendDossier(db, messenger, m.leaderId, m.id);
+        const r = await runActivity(m.leaderId, "Готовлю досье к встрече", () => sendDossier(db, messenger, m.leaderId, m.id));
         if (r === "sent") log(`досье ${m.id}: отправлено`);
       }
       for (const m of await dueAvatarMeetings(db)) {
-        await prepareAgenda(db, m.leaderId, m.id);
-        const res = await launchAvatarBot(db, m.leaderId, m.id);
+        const res = await runActivity(m.leaderId, "Готовлюсь к встрече", async () => {
+          await prepareAgenda(db, m.leaderId, m.id);
+          return launchAvatarBot(db, m.leaderId, m.id);
+        });
         if (res.status !== "skipped") log(`аватар ${m.id}: ${res.status}${res.status === "failed" ? ` (${res.reason})` : ""}`);
       }
     } catch (e) {
@@ -158,7 +162,7 @@ async function main() {
     collecting = true;
     try {
       for (const m of await dueTranscriptMeetings(db)) {
-        const r = await collectRecallProtocol(db, llm, m.leaderId, m.id);
+        const r = await runActivity(m.leaderId, "Собираю протокол встречи", () => collectRecallProtocol(db, llm, m.leaderId, m.id));
         if (r.status === "created") log(`протокол ${m.id}: карточка создана`);
       }
     } catch (e) {
