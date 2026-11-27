@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { costReportCsv, getCostReport } from "@/core/usage";
+import { costReportCsv, getCostReport, getRoiReport, roiCsv } from "@/core/usage";
 import { db } from "@/db/client";
 import { requireLeaderId } from "@/lib/http";
 
@@ -7,11 +7,11 @@ import { requireLeaderId } from "@/lib/http";
 export async function GET(req: Request) {
   const auth = await requireLeaderId(req);
   if (!auth.ok) return auth.res;
-  const report = await getCostReport(db, auth.leaderId);
+  const [report, roi] = await Promise.all([getCostReport(db, auth.leaderId), getRoiReport(db, auth.leaderId)]);
   if (new URL(req.url).searchParams.get("format") === "csv") {
-    return new NextResponse(costReportCsv(report), {
+    return new NextResponse(`${costReportCsv(report)}\n${roiCsv(roi)}`, {
       headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": 'attachment; filename="usage-cost.csv"' },
     });
   }
-  return NextResponse.json(report);
+  return NextResponse.json({ ...report, roi });
 }

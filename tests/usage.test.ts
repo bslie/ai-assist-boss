@@ -8,7 +8,8 @@ vi.stubEnv("APP_CLOCK_MODE", "real");
 const { db } = await import("@/db/client");
 const { clock } = await import("@/core/clock");
 const { dbUsageSink } = await import("@/core/llm/usage-db");
-const { costReportCsv, getCostReport, recallCostRub, recordServiceUsage } = await import("@/core/usage");
+const usageModule = await import("@/core/usage");
+const { costReportCsv, getCostReport, recallCostRub, recordServiceUsage } = usageModule;
 
 describe("цены из env", () => {
   it("нет цен или мусор → undefined", () => {
@@ -22,6 +23,28 @@ describe("цены из env", () => {
   it("Recall: ₽ за час → ₽ за секунды", () => {
     expect(recallCostRub(1800, { RECALL_PRICE_RUB_PER_HOUR: "60" })).toBe(30);
     expect(recallCostRub(1800, {})).toBe(0);
+  });
+});
+
+describe("окупаемость", () => {
+  const { computeRoi, hourRateFrom, roiCsv } = usageModule;
+  it("ставка: профиль важнее env, мусор игнорируется", () => {
+    expect(hourRateFrom({ hourRateRub: 2000 }, { STAFF_HOUR_RATE_RUB: "1000" })).toBe(2000);
+    expect(hourRateFrom({}, { STAFF_HOUR_RATE_RUB: "1000" })).toBe(1000);
+    expect(hourRateFrom({ hourRateRub: "x" }, { STAFF_HOUR_RATE_RUB: "" })).toBeNull();
+    expect(hourRateFrom(null, {})).toBeNull();
+  });
+  it("считает рубли, минуты на запрос и кратность", () => {
+    const r = computeRoi({ periodDays: 7, hourRateRub: 1200, savedMinutes: 600, spentRub: 30, paidCalls: 60 });
+    expect(r.savedRub).toBe(12000);
+    expect(r.perRequestRub).toBe(0.5);
+    expect(r.perRequestStaffMinutes).toBe(0.025);
+    expect(r.ratio).toBe(400);
+    expect(roiCsv(r)).toContain("saved_to_spent_ratio,400");
+  });
+  it("без ставки и без трат — без выдуманных чисел", () => {
+    const r = computeRoi({ periodDays: 7, hourRateRub: null, savedMinutes: 90, spentRub: 0, paidCalls: 0 });
+    expect([r.savedRub, r.perRequestRub, r.perRequestStaffMinutes, r.ratio]).toEqual([null, null, null, null]);
   });
 });
 

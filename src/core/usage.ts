@@ -75,6 +75,84 @@ export function costReportCsv(report: CostReport): string {
   return [head.join(","), ...lines].join("\n") + "\n";
 }
 
+/**
+ * Окупаемость: стоимость ИИ против стоимости времени, которое он освободил (методика организатора:
+ * потребление токенов против среднего часа сотрудника). Ставка часа — из профиля
+ * (`savedMinutesConfig.hourRateRub`), иначе из env `STAFF_HOUR_RATE_RUB`; не задана → денег нет, только минуты.
+ */
+export interface RoiReport {
+  periodDays: number;
+  hourRateRub: number | null;
+  savedMinutes: number;
+  savedRub: number | null;
+  spentRub: number;
+  paidCalls: number;
+  perRequestRub: number | null;
+  /** Сколько минут работы сотрудника стоит один запрос к ИИ. */
+  perRequestStaffMinutes: number | null;
+  /** Во сколько раз сэкономленное больше потраченного; null, если не с чем сравнивать. */
+  ratio: number | null;
+}
+
+export function hourRateFrom(savedMinutesConfig: unknown, env: Record<string, string | undefined> = process.env): number | null {
+  const fromProfile = typeof savedMinutesConfig === "object" && savedMinutesConfig !== null ? (savedMinutesConfig as Record<string, unknown>).hourRateRub : undefined;
+  for (const v of [fromProfile, env.STAFF_HOUR_RATE_RUB]) {
+    const n = Number(v);
+    if (v !== undefined && v !== "" && Number.isFinite(n) && n > 0) return n;
+  }
+  return null;
+}
+
+export function computeRoi(args: { periodDays: number; hourRateRub: number | null; savedMinutes: number; spentRub: number; paidCalls: number }): RoiReport {
+  const { hourRateRub, savedMinutes, spentRub, paidCalls } = args;
+  const savedRub = hourRateRub === null ? null : round((savedMinutes / 60) * hourRateRub, 2);
+  const perRequestRub = paidCalls > 0 ? round(spentRub / paidCalls) : null;
+  return {
+    periodDays: args.periodDays,
+    hourRateRub,
+    savedMinutes,
+    savedRub,
+    spentRub: round(spentRub),
+    paidCalls,
+    perRequestRub,
+    perRequestStaffMinutes: hourRateRub !== null && perRequestRub !== null ? round((perRequestRub / hourRateRub) * 60, 3) : null,
+    ratio: savedRub !== null && spentRub > 0 ? round(savedRub / spentRub, 1) : null,
+  };
+}
+
+/** Окупаемость за последние `periodDays` демо-дней: сэкономленные минуты из ActivityLog, траты из UsageLog. */
+export async function getRoiReport(db: PrismaClient, leaderId: string, periodDays = 7): Promise<RoiReport> {
+  const since = new Date(clock.now().getTime() - periodDays * 86_400_000);
+  const [leader, saved, cost] = await Promise.all([
+    db.leader.findFirstOrThrow({ where: { id: leaderId }, select: { savedMinutesConfig: true } }),
+    db.activityLog.aggregate({ where: { leaderId, createdAt: { gte: since } }, _sum: { savedMinutes: true } }),
+    getCostReport(db, leaderId, { since }),
+  ]);
+  return computeRoi({
+    periodDays,
+    hourRateRub: hourRateFrom(leader.savedMinutesConfig),
+    savedMinutes: saved._sum.savedMinutes ?? 0,
+    spentRub: cost.totalRub,
+    paidCalls: cost.paidCalls,
+  });
+}
+
+/** Блок окупаемости в конце CSV: ключ,значение. */
+export function roiCsv(roi: RoiReport): string {
+  const rows: [string, string | number | null][] = [
+    ["period_days", roi.periodDays],
+    ["staff_hour_rate_rub", roi.hourRateRub],
+    ["saved_minutes", roi.savedMinutes],
+    ["saved_rub", roi.savedRub],
+    ["spent_rub", roi.spentRub],
+    ["paid_calls", roi.paidCalls],
+    ["cost_per_request_rub", roi.perRequestRub],
+    ["cost_per_request_staff_minutes", roi.perRequestStaffMinutes],
+    ["saved_to_spent_ratio", roi.ratio],
+  ];
+  return ["metric,value", ...rows.map(([k, v]) => `${k},${csvCell(v)}`)].join("\n") + "\n";
+}
+
 /** Стоимость минут бота Recall: цена за час из RECALL_PRICE_RUB_PER_HOUR (нет → 0). */
 export function recallCostRub(seconds: number, env: Record<string, string | undefined> = process.env): number {
   const perHour = Number(env.RECALL_PRICE_RUB_PER_HOUR ?? 0);

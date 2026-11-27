@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { Suspense } from "react";
 import { getToday } from "@/core/dashboard";
 import { REPORT_PATH, type InboxEvalReport } from "@/core/eval/inbox";
-import { getCostReport } from "@/core/usage";
+import { getCostReport, getRoiReport } from "@/core/usage";
 import { db } from "@/db/client";
 import { getCurrentLeader } from "@/lib/current-leader";
 
@@ -39,7 +39,7 @@ function loadEval(): InboxEvalReport | null {
 async function Metrics() {
   const leader = await getCurrentLeader();
   if (!leader) return <p className="text-dim">Руководитель ещё не создан. Запустите <code>npm run db:seed</code>.</p>;
-  const [today, cost] = await Promise.all([getToday(db, leader.id), getCostReport(db, leader.id)]);
+  const [today, cost, roi] = await Promise.all([getToday(db, leader.id), getCostReport(db, leader.id), getRoiReport(db, leader.id)]);
   const m = today.metrics;
   const ev = loadEval();
 
@@ -56,6 +56,20 @@ async function Metrics() {
           <Stat label="Время до протокола" value={m.avgProtocolMinutes === null ? "—" : `${m.avgProtocolMinutes} мин`} note="От конца встречи до готового протокола." />
           <Stat label="Выучено правил из правок" value={String(m.learnedRules)} />
           <Stat label="Стоимость запроса" value={m.cost.perRequestRub === null ? "—" : rub(m.cost.perRequestRub)} note={`Всего потрачено ${rub(m.cost.totalRub)}.`} />
+        </div>
+      </section>
+
+      <section aria-labelledby="roi" className="flex flex-col gap-4">
+        <h2 id="roi" className="font-serif text-2xl font-medium">Окупаемость за {roi.periodDays} дней</h2>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Stat label="Потрачено на ИИ" value={rub(roi.spentRub)} note={`Платных обращений: ${roi.paidCalls}.`} />
+          <Stat
+            label="Стоит освобождённое время"
+            value={roi.savedRub === null ? `${Math.round(roi.savedMinutes)} мин` : rub(roi.savedRub)}
+            note={roi.hourRateRub === null ? "Ставка часа не задана: STAFF_HOUR_RATE_RUB или hourRateRub в профиле." : `${Math.round(roi.savedMinutes)} мин по ставке ${rub(roi.hourRateRub)} за час.`}
+          />
+          <Stat label="Один запрос к ИИ" value={roi.perRequestStaffMinutes === null ? "—" : `${String(roi.perRequestStaffMinutes).replace(".", ",")} мин`} note="Столько минут работы сотрудника стоит одно обращение." />
+          <Stat label="Сэкономлено на 1 ₽ затрат" value={roi.ratio === null ? "—" : `${String(roi.ratio).replace(".", ",")} ₽`} />
         </div>
       </section>
 
