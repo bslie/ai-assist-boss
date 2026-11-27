@@ -7,11 +7,18 @@ import { generateObject } from "ai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { LlmClient, type LlmClientOptions, type LlmProvider } from "./index";
 
+/** Лимит одного вызова модели, мс: `LLM_TIMEOUT_MS`, по умолчанию 90 с. */
+export function llmTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
+  const n = Number(env.LLM_TIMEOUT_MS);
+  return Number.isFinite(n) && n >= 1000 ? n : 90_000;
+}
+
 export function createProviderFromEnv(env: NodeJS.ProcessEnv = process.env): LlmProvider {
   const baseURL = env.LLM_BASE_URL;
   const model = env.LLM_MODEL;
   if (!baseURL || !model) throw new Error("LLM_BASE_URL and LLM_MODEL must be set");
   const name = env.LLM_PROVIDER_NAME ?? "openai-compatible";
+  const timeoutMs = llmTimeoutMs(env);
   // Без supportsStructuredOutputs схема не уходит в запрос (json_object), и модель выдумывает имена полей.
   // LLM_STRUCTURED_OUTPUTS=0 отключает для эндпоинтов без json_schema.
   const client = createOpenAICompatible({
@@ -25,7 +32,8 @@ export function createProviderFromEnv(env: NodeJS.ProcessEnv = process.env): Llm
     name,
     model,
     async generate({ system, prompt, schema, temperature }) {
-      const result = await generateObject({ model: client(model), schema, system, prompt, temperature });
+      // Зависший эндпоинт не должен вешать карточку или страницу навсегда: общий лимит на вызов вместе с повторами.
+      const result = await generateObject({ model: client(model), schema, system, prompt, temperature, abortSignal: AbortSignal.timeout(timeoutMs) });
       return {
         object: result.object,
         promptTokens: result.usage?.inputTokens ?? 0,

@@ -93,9 +93,15 @@ export interface ProfileDiff {
   profileVersion: { from: number; to: number };
 }
 
-const ruleKey = (name: string) => name.trim().toLowerCase();
+/** Имя правила для людей: модель иногда отдаёт технический ключ («money»), тогда берём описание. */
+export function ruleLabel(r: { name: string; description: string }): string {
+  return /^[\w\s-]+$/.test(r.name.trim()) && r.description.trim() ? r.description.trim() : r.name.trim();
+}
 
-/** Diff-превью для подтверждения в вебе перед записью. */
+/** Смысл правила: системное ли, категория, действие. Имя не в счёт — его модель формулирует по-разному. */
+const meaningKey = (locked: boolean, category: unknown, action: string) => `${locked ? "L" : "U"}|${String(category ?? "")}|${action}`;
+
+/** Diff-превью для подтверждения в вебе перед записью. Сравнение по смыслу, а не по формулировке. */
 export async function diffProfile(db: PrismaClient, leaderId: string, draft: ProfileDraft): Promise<ProfileDiff> {
   const leader = await db.leader.findFirstOrThrow({ where: { id: leaderId } });
   const rules = await db.rule.findMany({ where: { leaderId, source: "PROFILE_IMPORT" } });
@@ -104,12 +110,22 @@ export async function diffProfile(db: PrismaClient, leaderId: string, draft: Pro
     added: after.filter((x) => !before.includes(x)),
     removed: before.filter((x) => !after.includes(x)),
   });
-  const newRules = [...draft.neverWithoutApproval, ...draft.allowed].map((r) => ruleKey(r.name));
+  const before = rules.map((r) => ({ key: meaningKey(r.isSystemLocked, (r.condition as { category?: unknown } | null)?.category, r.action), label: r.name }));
+  const after = [
+    ...draft.neverWithoutApproval.map((r) => ({ key: meaningKey(true, r.category, "ASK_LEADER"), label: ruleLabel(r) })),
+    ...draft.allowed.map((r) => ({ key: meaningKey(false, r.category, r.action), label: ruleLabel(r) })),
+  ];
+  const beforeKeys = new Set(before.map((r) => r.key));
+  const afterKeys = new Set(after.map((r) => r.key));
   const newLimit = draft.budgetAutoLimit ?? leader.budgetAutoLimit;
   return {
     goals: split((leader.quarterGoals as string[]) ?? [], draft.goals),
-    rules: split(rules.map((r) => ruleKey(r.name)), newRules),
-    routines: split(routines.map((r) => r.code), draft.routines.map((r) => r.code)),
+    rules: {
+      added: after.filter((r) => !beforeKeys.has(r.key)).map((r) => r.label),
+      removed: before.filter((r) => !afterKeys.has(r.key)).map((r) => r.label),
+    },
+    // applyProfile рутины не удаляет (только добавляет и обновляет), поэтому и в diff только добавленные.
+    routines: { added: draft.routines.filter((r) => !routines.some((x) => x.code === r.code)).map((r) => r.title), removed: [] },
     budgetAutoLimit: newLimit === leader.budgetAutoLimit ? null : { from: leader.budgetAutoLimit, to: newLimit },
     profileVersion: { from: leader.profileVersion, to: leader.profileVersion + 1 },
   };
@@ -145,7 +161,7 @@ export async function applyProfile(
       data: [
         ...safe.neverWithoutApproval.map((r, i) => ({
           leaderId,
-          name: r.name,
+          name: ruleLabel(r),
           description: r.description,
           condition: { category: r.category },
           action: "ASK_LEADER" as const,
@@ -155,7 +171,7 @@ export async function applyProfile(
         })),
         ...safe.allowed.map((r, i) => ({
           leaderId,
-          name: r.name,
+          name: ruleLabel(r),
           description: r.description,
           condition: { category: r.category },
           action: r.action,

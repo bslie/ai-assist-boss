@@ -151,5 +151,113 @@
     "deadline": "до четверга",
     "isUrgent": false,
     "summary": "Клиент просит скидку 12% по годовому контракту на 4,8 млн ₽, требуется согласование до четверга."
+  },
+  "a697935aca7bb16082a32f97fd32112a60d27ca713e2578c2bec079e5d66d24e": {
+    "goals": [
+      "Выполнить план продаж SMB",
+      "Запустить партнёрский канал с «Облако Плюс»",
+      "Сократить время ответа клиентского сервиса до 4 часов"
+    ],
+    "neverWithoutApproval": [
+      {
+        "name": "money",
+        "description": "деньги и бюджеты (скидки, перераспределения, закупки)",
+        "category": "MONEY"
+      },
+      {
+        "name": "hr",
+        "description": "кадры (найм, офферы, отпуска, увольнения)",
+        "category": "HR"
+      },
+      {
+        "name": "client_commitment",
+        "description": "обязательства клиентам (сроки, условия, гарантии)",
+        "category": "CLIENT_COMMITMENT"
+      },
+      {
+        "name": "management_letters",
+        "description": "письма руководству (коммерческий директор и выше)",
+        "category": "MANAGEMENT"
+      }
+    ],
+    "allowed": [
+      {
+        "name": "calendar_auto",
+        "description": "перенос и подтверждение внутренних регулярных встреч, если не задеты защищённые блоки",
+        "category": "CALENDAR",
+        "action": "AUTO",
+        "delegateToArea": null
+      },
+      {
+        "name": "newsletter_reject",
+        "description": "отказ от рассылок и неприоритетных приглашений",
+        "category": "NEWSLETTER",
+        "action": "IGNORE",
+        "delegateToArea": null
+      },
+      {
+        "name": "invitation_reject",
+        "description": "отказ от рассылок и неприоритетных приглашений",
+        "category": "INVITATION",
+        "action": "AUTO",
+        "delegateToArea": null
+      },
+      {
+        "name": "delegate_sales",
+        "description": "передача запроса ответственному сотруднику по оргструктуре (КП → директор по продажам, жалоба → сервис) с уведомлением руководителя в сводке",
+        "category": "SALES",
+        "action": "DELEGATE",
+        "delegateToArea": "продажи"
+      },
+      {
+        "name": "delegate_support",
+        "description": "передача запроса ответственному сотруднику по оргструктуре (КП → директор по продажам, жалоба → сервис) с уведомлением руководителя в сводке",
+        "category": "CLIENT_SUPPORT",
+        "action": "DELEGATE",
+        "delegateToArea": "сервис"
+      },
+      {
+        "name": "delegate_access",
+        "description": "передача запроса ответственному сотруднику по оргструктуре (КП → директор по продажам, жалоба → сервис) с уведомлением руководителя в сводке",
+        "category": "ACCESS",
+        "action": "DELEGATE",
+        "delegateToArea": "доступы"
+      },
+      {
+        "name": "report_digest",
+        "description": "отчёты и статусы — не отвечать, а включить в утреннюю или недельную сводку",
+        "category": "REPORT",
+        "action": "DIGEST",
+        "delegateToArea": null
+      },
+      {
+        "name": "status_digest",
+        "description": "отчёты и статусы — не отвечать, а включить в утреннюю или недельную сводку",
+        "category": "STATUS",
+        "action": "DIGEST",
+        "delegateToArea": null
+      }
+    ],
+    "routines": [
+      {
+        "code": "MORNING_DIGEST",
+        "title": "Утренний план дня",
+        "cronExpression": "30 8 * * 1-5",
+        "promptInstruction": "Собери утреннюю сводку: отчёты, статусы, делегированные запросы, календарь и приоритеты дня. Уведоми руководителя в Telegram."
+      },
+      {
+        "code": "WEEKLY_REPORT",
+        "title": "Итог недели",
+        "cronExpression": "0 17 * * 5",
+        "promptInstruction": "Собери недельную сводку: результаты по целям, отчёты, статусы, делегированные запросы, риски и план на следующую неделю. Уведоми руководителя в Telegram."
+      }
+    ],
+    "protectedBlocks": [
+      "стратегия направления",
+      "встречи с командой один на один",
+      "клиенты и партнёры"
+    ],
+    "stylePrompt": "Пиши коротко, по делу, с конкретным следующим шагом и сроком. Бери манеру речи из открытых материалов руководителя: посты и видео канала «Сделано круто».",
+    "budgetAutoLimit": null
   }
 }

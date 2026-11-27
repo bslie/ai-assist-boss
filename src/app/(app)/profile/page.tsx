@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { LeaderWizard } from "@/components/assistant/leader-wizard";
 import { Composer } from "@/components/assistant/composer";
+import { ProfileImport } from "@/components/assistant/profile-import";
 import { ProfileText } from "@/components/assistant/profile-text";
 import { getCurrentUser } from "@/core/auth/current-user";
 import { describeCron } from "@/core/routines";
@@ -86,6 +87,20 @@ async function Profile() {
           </summary>
           <div className="border-t border-line px-6 py-5">
             <ProfileText markdown={leader.profileMarkdown} />
+          </div>
+        </details>
+      </section>
+
+      {/* SPEC 4.6: «скопировать leader_profile.md, поменять — агент работает без изменения кода». */}
+      <section aria-labelledby="import">
+        <details className="group rounded-[18px] border border-line bg-sunken">
+          <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-4 px-6 py-4 [&::-webkit-details-marker]:hidden">
+            <h2 id="import" className="font-serif text-xl font-medium">Загрузить профиль из текста</h2>
+            <span className="text-sm text-dim group-open:hidden">leader_profile.md</span>
+            <span className="hidden text-sm text-dim group-open:inline">Скрыть</span>
+          </summary>
+          <div className="border-t border-line px-6 py-5">
+            <ProfileImport leaderId={leader.id} initial={leader.profileMarkdown} />
           </div>
         </details>
       </section>
