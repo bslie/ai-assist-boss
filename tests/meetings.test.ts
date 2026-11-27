@@ -203,4 +203,18 @@ describe.skipIf(!dbUp)("протокол встречи: от транскрип
     expect(qs.length).toBeLessThanOrEqual(5);
     expect(qs[0].question).toContain("Срок уже прошёл");
   });
+
+  it("«только исполнителям»: протокол уходит лишь тем, у кого есть поручение и адрес в команде", async () => {
+    const m3 = await db.meeting.findFirstOrThrow({ where: { leaderId, title: "Планёрка направления", isProtocolApproved: false }, orderBy: { startAt: "asc" } });
+    const { llm } = fakeLlm();
+    const res = await generateProtocolDecision({ db, llm, examples: [] }, leaderId, m3.id, TRANSCRIPT + " третий раз");
+    if (!res.ok) throw new Error(res.reason);
+    await db.decision.update({ where: { id: res.decisionId }, data: { status: "APPROVED" } });
+    const mail = fakeMail();
+    const out = await executeApprovedProtocol(db, leaderId, res.decisionId, { connector: mail.c, recipients: "IN_PROTOCOL" });
+    const team = await db.employee.findMany({ where: { leaderId, name: { in: ["Ольга Смирнова", "Дмитрий Козлов"] } } });
+    expect(out).toMatchObject({ applicable: true, mailsSent: 2 });
+    expect(mail.sent.map((m) => m.to).sort()).toEqual(team.map((e) => e.email.toLowerCase()).sort());
+    expect((m3.attendees as string[]).length).toBeGreaterThan(2);
+  });
 });

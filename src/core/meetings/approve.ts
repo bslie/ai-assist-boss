@@ -43,8 +43,9 @@ export async function executeApprovedProtocol(
   db: PrismaClient,
   leaderId: string,
   decisionId: string,
-  deps: { connector?: MailConnector } = {},
+  deps: { connector?: MailConnector; recipients?: "ALL" | "IN_PROTOCOL" } = {},
 ): Promise<ProtocolExecResult> {
+  const mode = deps.recipients ?? "ALL";
   const skip = (reason: string): ProtocolExecResult => ({ applicable: false, reason });
   const d = await db.decision.findFirst({ where: { id: decisionId, leaderId, type: "MEETING_PROTOCOL" } });
   if (!d || (d.status !== "APPROVED" && d.status !== "EDITED_APPROVED")) return skip("Решение не утверждено");
@@ -65,8 +66,10 @@ export async function executeApprovedProtocol(
 
   const now = clock.now();
   let tasksCreated = 0;
+  const assigneeEmails = new Set<string>();
   for (const a of assignments) {
     const assignee = a.assigneeId ? await db.employee.findFirst({ where: { id: a.assigneeId, leaderId } }) : null;
+    if (assignee?.email) assigneeEmails.add(assignee.email.toLowerCase());
     const due = a.dueDate ? new Date(`${a.dueDate}T18:00:00+03:00`) : new Date(meeting.endAt.getTime() + 7 * DAY);
     const task = await db.task.create({
       data: {
@@ -85,7 +88,9 @@ export async function executeApprovedProtocol(
     await publishEvent(leaderId, { type: "task.updated", data: { id: task.id, created: true } });
   }
 
-  const mail = await sendProtocolMail(db, leaderId, meeting, markdown, deps.connector);
+  // «Всем» — участники из календаря; «из протокола» — только исполнители поручений.
+  const recipients = mode === "IN_PROTOCOL" ? [...assigneeEmails] : meeting.attendees;
+  const mail = await sendProtocolMail(db, leaderId, { title: meeting.title, attendees: recipients }, markdown, deps.connector);
   // Сбой подбора слота не отменяет утверждённый протокол: поручения и рассылка уже выполнены.
   const next = await scheduleNextMeeting(db, leaderId, meetingId).catch((e): NextMeetingResult => ({ status: "skipped", reason: (e as Error).message }));
 
@@ -98,9 +103,9 @@ export async function executeApprovedProtocol(
       leaderId,
       pipeline: "MEETING",
       action: "PROTOCOL_APPROVED",
-      reason: `Протокол «${meeting.title}» утверждён: поручений ${tasksCreated}, писем ${mail.sent}`,
+      reason: `Протокол «${meeting.title}» утверждён: поручений ${tasksCreated}, писем ${mail.sent} (${mode === "IN_PROTOCOL" ? "только исполнителям" : "всем участникам"})`,
       savedMinutes: Number.isFinite(saved) ? saved : DEFAULT_SAVED_MINUTES,
-      metadata: { decisionId, meetingId, tasksCreated, mailsSent: mail.sent, mailsFailed: mail.failed },
+      metadata: { decisionId, meetingId, tasksCreated, mailsSent: mail.sent, mailsFailed: mail.failed, recipients: mode },
     },
   });
   await publishEvent(leaderId, { type: "metrics.updated", data: {} });
@@ -119,8 +124,8 @@ async function sendProtocolMail(
 
   const recipients = z.array(z.string().email()).safeParse(meeting.attendees);
   if (!recipients.success || recipients.data.length === 0) {
-    await log("PROTOCOL_MAIL_SKIPPED", "У встречи нет адресов участников: протокол не разослан");
-    return { sent: 0, failed: 0, note: "нет адресов участников" };
+    await log("PROTOCOL_MAIL_SKIPPED", "Нет адресов получателей: протокол не разослан");
+    return { sent: 0, failed: 0, note: "нет адресов получателей" };
   }
 
   let row = null;

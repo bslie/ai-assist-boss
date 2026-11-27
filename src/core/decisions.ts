@@ -12,9 +12,13 @@ import { publishEvent } from "./events";
 import { executeApprovedReply } from "./mail/send";
 import { executeApprovedProtocol } from "./meetings/approve";
 
+/** Кому уходит утверждённый протокол: всем участникам встречи или только исполнителям из протокола. */
+export const ProtocolRecipientsSchema = z.enum(["ALL", "IN_PROTOCOL"]);
+export type ProtocolRecipients = z.infer<typeof ProtocolRecipientsSchema>;
+
 export const ResolveSchema = z.discriminatedUnion("action", [
-  z.object({ action: z.literal("APPROVE") }),
-  z.object({ action: z.literal("EDITED_APPROVED"), editedText: z.string().min(1) }),
+  z.object({ action: z.literal("APPROVE"), protocolRecipients: ProtocolRecipientsSchema.optional() }),
+  z.object({ action: z.literal("EDITED_APPROVED"), editedText: z.string().min(1), protocolRecipients: ProtocolRecipientsSchema.optional() }),
   z.object({ action: z.literal("DELEGATE"), delegateToId: z.string().min(1) }),
   z.object({ action: z.literal("REJECTED") }),
   z.object({ action: z.literal("SNOOZE") }),
@@ -85,7 +89,9 @@ export async function resolveDecision(
   // Утверждённый ответ уходит в почту через Policy Gate. Сбой отправки не отменяет решение: он виден в журнале.
   if (input.action === "APPROVE" || input.action === "EDITED_APPROVED") {
     await executeApprovedReply(db, leaderId, decisionId).catch(() => null);
-    if (decision.type === "MEETING_PROTOCOL") await executeApprovedProtocol(db, leaderId, decisionId).catch(() => null);
+    if (decision.type === "MEETING_PROTOCOL") {
+      await executeApprovedProtocol(db, leaderId, decisionId, { recipients: input.protocolRecipients ?? "ALL" }).catch(() => null);
+    }
   }
 
   await publishEvent(leaderId, { type: "decision.updated", data: { id: decisionId, status } });

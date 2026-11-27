@@ -1,6 +1,7 @@
 /**
  * Обработчики колбэков и текста (SPEC 5.1). callback_data:
  *   d:a|e|d|s|b:<decisionId>   утвердить / поправить / передать / не сейчас / назад
+ *   d:p:<decisionId>           протокол: утвердить и разослать только исполнителям
  *   d:t:<decisionId>:<empId>   передать сотруднику
  *   r:<bindingId>              сменить роль
  * Каждое решение проходит ту же функцию resolveDecision, что и веб; чужие карточки недоступны.
@@ -81,6 +82,9 @@ export async function handleCallback(deps: Deps, input: CallbackInput): Promise<
   switch (action) {
     case "a":
       return resolveAndRefresh(deps, input.chatId, id, d.leaderId, { action: "APPROVE" });
+    case "p":
+      if (d.type !== "MEETING_PROTOCOL") return "Неизвестное действие";
+      return resolveAndRefresh(deps, input.chatId, id, d.leaderId, { action: "APPROVE", protocolRecipients: "IN_PROTOCOL" });
     case "s":
       return resolveAndRefresh(deps, input.chatId, id, d.leaderId, { action: "SNOOZE" });
     case "t":
@@ -115,7 +119,7 @@ export async function handleCallback(deps: Deps, input: CallbackInput): Promise<
     }
     case "b": {
       const [card] = await buildDecisionCards(deps.db, d.leaderId, [d]);
-      await deps.messenger.edit(input.chatId, input.messageId, cardText(card), cardButtons(id));
+      await deps.messenger.edit(input.chatId, input.messageId, cardText(card), cardButtons(id, d.type));
       return "Ок";
     }
     default:

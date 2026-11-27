@@ -152,7 +152,14 @@ export function DecisionStack({ leaderId, decisions, delegates }: { leaderId: st
 
         {mode === "idle" && (
           <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap sm:gap-2.5">
-            <Button className="col-span-3 h-12 rounded-full px-6 font-semibold" disabled={busy} onClick={() => resolve({ action: "APPROVE" })}>Утвердить</Button>
+            {cur.type === "MEETING_PROTOCOL" ? (
+              <>
+                <Button className="col-span-3 h-12 rounded-full px-6 font-semibold" disabled={busy} onClick={() => resolve({ action: "APPROVE", protocolRecipients: "ALL" })}>Утвердить и разослать всем</Button>
+                <Button variant="outline" className="col-span-3 h-12 rounded-full px-5" disabled={busy} onClick={() => resolve({ action: "APPROVE", protocolRecipients: "IN_PROTOCOL" })}>Только исполнителям</Button>
+              </>
+            ) : (
+              <Button className="col-span-3 h-12 rounded-full px-6 font-semibold" disabled={busy} onClick={() => resolve({ action: "APPROVE" })}>Утвердить</Button>
+            )}
             <Button variant="outline" className="h-12 rounded-full px-3 sm:px-5" disabled={busy} onClick={() => { setEdited(cur.draft ?? ""); setMode("edit"); }}>Поправить</Button>
             <Button variant="outline" className="h-12 rounded-full px-3 sm:px-5" disabled={busy || delegates.length === 0} onClick={() => setMode("delegate")}>Передать</Button>
             <Button variant="ghost" className="h-12 rounded-full px-3 text-dim sm:px-5" disabled={busy} onClick={() => resolve({ action: "SNOOZE" })}>Не сейчас</Button>

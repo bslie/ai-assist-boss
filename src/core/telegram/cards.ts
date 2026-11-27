@@ -27,11 +27,22 @@ export function cardText(c: DecisionCard): string {
   return lines.filter((l): l is string => l !== null).join("\n");
 }
 
-export const cardButtons = (id: string): Button[][] => [
-  [
-    { text: "Утвердить", data: `d:a:${id}` },
-    { text: "Поправить", data: `d:e:${id}` },
-  ],
+/** У протокола два варианта утверждения: разослать всем участникам или только исполнителям из протокола. */
+export const cardButtons = (id: string, type?: string): Button[][] => [
+  ...(type === "MEETING_PROTOCOL"
+    ? [
+        [
+          { text: "Утвердить: всем", data: `d:a:${id}` },
+          { text: "Только исполнителям", data: `d:p:${id}` },
+        ],
+        [{ text: "Поправить", data: `d:e:${id}` }],
+      ]
+    : [
+        [
+          { text: "Утвердить", data: `d:a:${id}` },
+          { text: "Поправить", data: `d:e:${id}` },
+        ],
+      ]),
   [
     { text: "Передать", data: `d:d:${id}` },
     { text: "Не сейчас", data: `d:s:${id}` },
@@ -59,7 +70,7 @@ export async function sendDecisionCard(db: PrismaClient, m: Messenger, leaderId:
   const [card] = await buildDecisionCards(db, leaderId, [d]);
   let first: string | null = null;
   for (const chatId of chats) {
-    const { messageId } = await m.send(chatId, cardText(card), cardButtons(d.id));
+    const { messageId } = await m.send(chatId, cardText(card), cardButtons(d.id, d.type));
     first ??= ref(chatId, messageId);
   }
   // Условная запись: гонка двух воркеров не затрёт уже сохранённую ссылку.
@@ -74,7 +85,7 @@ export async function refreshDecisionCard(db: PrismaClient, m: Messenger, leader
   if (!d || !target) return false;
   const [card] = await buildDecisionCards(db, leaderId, [d]);
   if (d.status === "PENDING") {
-    await m.edit(target.chatId, target.messageId, cardText(card), cardButtons(d.id));
+    await m.edit(target.chatId, target.messageId, cardText(card), cardButtons(d.id, d.type));
   } else {
     await m.edit(target.chatId, target.messageId, `${cardText(card)}\n\n<b>${esc(STATUS_TEXT[d.status] ?? d.status)}</b>`);
   }
