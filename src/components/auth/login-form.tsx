@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CalendarClock, Eye, EyeOff, Loader2, Mail, Send, ShieldCheck } from "lucide-react";
+import { TypedHeadline, type Segment } from "@/components/assistant/typed-headline";
 import { Button } from "@/components/ui/button";
 
 type Props = { telegramEnabled: boolean; next: string; initialError: string | null };
@@ -26,6 +27,14 @@ const POINTS = [
   { icon: ShieldCheck, text: "Важное решаете только вы" },
 ];
 
+// Заголовок сначала печатает «с кофе», затем стирает и дописывает «с готового плана».
+// Отличающийся className заставляет стереть весь сегмент, а не только «кофе» после общего «с ».
+const HEADLINE_LEAD: Segment = { text: "Утро начинается " };
+const HEADLINE_FIRST: Segment[] = [HEADLINE_LEAD, { text: "с кофе", className: "text-amber font-normal" }];
+const HEADLINE_FINAL: Segment[] = [HEADLINE_LEAD, { text: "с готового плана", className: "text-amber" }];
+// Итоговый текст занимает две строки, «с кофе» — одну: высоту (2 × leading 1.15) резервирует min-h у заголовка, иначе блок прыгает.
+const HEADLINE_SWITCH_MS = 2400; // печать ~1,2 с при speed 1,6 + пауза, чтобы успели прочитать
+
 /** Вход: логин и пароль, либо Telegram (OpenID Connect, полный редирект). Успех — переход на `next`. */
 export function LoginForm({ telegramEnabled, next, initialError }: Props) {
   const router = useRouter();
@@ -34,6 +43,11 @@ export function LoginForm({ telegramEnabled, next, initialError }: Props) {
   const [busy, setBusy] = useState(false);
   const [show, setShow] = useState(false);
   const [caps, setCaps] = useState(false);
+  const [headline, setHeadline] = useState(HEADLINE_FIRST);
+  useEffect(() => {
+    const t = setTimeout(() => setHeadline(HEADLINE_FINAL), HEADLINE_SWITCH_MS);
+    return () => clearTimeout(t);
+  }, []);
   const [error, setError] = useState<string | null>(
     initialError ? (TELEGRAM_ERRORS[initialError] ?? "Вход через Telegram не прошёл") : null,
   );
@@ -70,9 +84,7 @@ export function LoginForm({ telegramEnabled, next, initialError }: Props) {
           <span className="font-serif text-lg">ИИ-помощник руководителя</span>
         </div>
         <div className="flex flex-col gap-6">
-          <h2 className="font-serif text-[34px] leading-[1.15] tracking-[-0.02em]">
-            Утро начинается <span className="text-amber">с готового плана</span>
-          </h2>
+          <TypedHeadline as="h2" always speed={1.6} segments={headline} className="min-h-[2.3em] font-serif text-[34px] leading-[1.15] tracking-[-0.02em]" />
           <ul className="flex flex-col gap-3 text-[15px] text-soft">
             {POINTS.map(({ icon: Icon, text }) => (
               <li key={text} className="flex items-center gap-3">
