@@ -1,6 +1,5 @@
 import { Suspense } from "react";
 import { LeaderWizard } from "@/components/assistant/leader-wizard";
-import { Composer } from "@/components/assistant/composer";
 import { ProfileImport } from "@/components/assistant/profile-import";
 import { ProfileText } from "@/components/assistant/profile-text";
 import { getCurrentUser } from "@/core/auth/current-user";
@@ -30,7 +29,7 @@ async function Profile() {
           ))}
         </div>
         <p className="mt-2 rounded-[18px] border border-line bg-sunken px-5 py-4 text-[15px] leading-relaxed text-soft">
-          Чтобы что-то изменить, напишите мне в чате внизу: «добавь цель квартала…», «порог по деньгам 50 тысяч», «пиши мне короче». Я покажу, что поменяется, и запишу после вашего «да».
+          Чтобы что-то изменить, напишите мне в чате на странице «Разговор»: «добавь цель квартала…», «порог по деньгам 50 тысяч», «пиши мне короче». Я покажу, что поменяется, и запишу после вашего «да».
         </p>
       </section>
 
@@ -121,10 +120,6 @@ async function Profile() {
           <LeaderWizard />
         </>
       )}
-
-      <div className="sticky bottom-0 z-10">
-        <Composer leaderId={leader.id} />
-      </div>
     </>
   );
 }
