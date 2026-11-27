@@ -183,6 +183,8 @@ describe.skipIf(!dbUp)("опрос и отправка (Postgres)", () => {
     await clock.init();
     a = await seedTempLeader(db, "mail-a");
     b = await seedTempLeader(db, "mail-b");
+    // Архив по праву AUTO проверяем у руководителя вне режима обучения (в режиме письмо осталось бы во входящих).
+    await db.leader.update({ where: { id: a }, data: { learningMode: false } });
     connectorId = await addConnector(a, { "mail.read": "AUTO", "mail.send_reply": "APPROVE", "mail.archive": "AUTO" });
   });
   afterAll(async () => {

@@ -20,6 +20,8 @@ import {
 import { esc, type Button, type Messenger } from "../telegram/types";
 
 export const ASSIGN_TOOL = "telegram.assign_task";
+/** Область доверия режима обучения для отправки поручений (SPEC 1.1). */
+export const TASK_ASSIGN_SCOPE = "TASK_ASSIGN";
 const TZ = "Europe/Moscow";
 
 export interface DispatchDeps {
@@ -84,12 +86,20 @@ export async function dispatchTask(
         ? { verdict: "DENY", reasons: [`Инструмент ${ASSIGN_TOOL} запрещён`], signals: [] }
         : { verdict: "ALLOW", reasons: ["Подтверждено руководителем"], signals: [] };
   } else {
+    // Поручение из утверждённого протокола: руководитель уже видел исполнителя, срок и критерий.
+    // Это снимает только режим обучения; права инструмента и защищённые категории проверяются как обычно.
+    const fromApprovedProtocol =
+      task.sourceType === "MEETING" &&
+      Boolean(task.sourceRefId) &&
+      (await db.meeting.count({ where: { id: task.sourceRefId ?? "", leaderId, isProtocolApproved: true } })) > 0;
     verdict = evaluate(ASSIGN_TOOL, {
+      approvedByLeader: fromApprovedProtocol,
       leader: await loadGateLeader(db, leaderId),
       // Обязательство клиенту — защищённая категория, даже если письмо классифицировано иначе.
       category: task.isClientCommitment ? "CLIENT_COMMITMENT" : (source?.category ?? undefined),
       confidence: source?.confidence ?? 1,
       toolPermission: permission,
+      trustScope: TASK_ASSIGN_SCOPE,
     });
   }
   await logVerdict(db, leaderId, ASSIGN_TOOL, verdict, { metadata: { taskId: task.id } });

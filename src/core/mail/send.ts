@@ -52,7 +52,7 @@ export async function executeApprovedReply(
   if (!row.isActive) return fail("Подключение к почте выключено: ответ не отправлен");
 
   const perm = await getConnectorToolPermission(db, leaderId, row.id, "mail.send_reply");
-  const verdict = evaluate("mail.send_reply", { leader: await loadGateLeader(db, leaderId), toolPermission: perm, isOutbound: true });
+  const verdict = evaluate("mail.send_reply", { leader: await loadGateLeader(db, leaderId), toolPermission: perm, isOutbound: true, approvedByLeader: true });
   await logVerdict(db, leaderId, "mail.send_reply", verdict, { metadata: { decisionId, approvedByLeader: true } });
   if (verdict.verdict === "DENY") return fail("Отправка ответов запрещена в правах подключения");
 

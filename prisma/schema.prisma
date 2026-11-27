@@ -77,6 +77,8 @@ model Leader {
   profileMarkdown    String   @db.Text // исходный leader_profile.md
   profileVersion     Int      @default(1)
   shadowMode         Boolean  @default(false) // P2
+  learningMode       Boolean  @default(true) // SPEC 1.1: «учусь», внешние действия только с подтверждением
+  trustedScopes      String[] @default([]) // категории писем / TASK_ASSIGN, отпущенные из режима обучения
   createdAt          DateTime @default(now())
 
   employees           Employee[]

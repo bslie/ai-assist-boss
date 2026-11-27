@@ -34,6 +34,10 @@ export interface GateLeader {
   budgetAutoLimit: number;
   protectedBlocks: readonly string[];
   shadowMode?: boolean;
+  /** Режим обучения (SPEC 1.1): пока включён, сама ничего наружу не делаю. */
+  learningMode?: boolean;
+  /** Области, где руководитель разрешил действовать без него: категории писем или TASK_ASSIGN. */
+  trustedScopes?: readonly string[];
 }
 
 export interface GateContext {
@@ -51,6 +55,18 @@ export interface GateContext {
   isOutbound?: boolean;
   /** Права инструмента из Connector.toolPermissions; нет записи → APPROVE. */
   toolPermission?: ToolPermission | null;
+  /** Руководитель уже согласился: утвердил карточку или сам задал разрешение (порог бюджета, аватар на встрече). */
+  approvedByLeader?: boolean;
+  /** Область доверия для режима обучения, если она не совпадает с категорией (например, TASK_ASSIGN). */
+  trustScope?: string | null;
+}
+
+/** Область, которую руководитель отпустил из режима обучения. Защищённые категории и деньги не отпускаются никогда. */
+function isTrusted(ctx: GateContext): boolean {
+  const scope = ctx.trustScope ?? ctx.category;
+  if (!scope || isLockedCategory(scope)) return false;
+  if (ctx.category && isLockedCategory(ctx.category)) return false;
+  return (ctx.leader.trustedScopes ?? []).includes(scope);
 }
 
 const SOFT_ONLY_OK = new Set<RiskSignal>(["MONEY_TERMS", "FINANCE_PARTY"]);
@@ -125,6 +141,10 @@ export function evaluate(toolName: string, ctx: GateContext): GateResult {
   // Шаг 6 (P2). Режим тени.
   if (ctx.leader.shadowMode) {
     return { verdict: "APPROVE", reasons: ["Режим тени"], signals };
+  }
+  // Шаг 7 (SPEC 1.1). Режим обучения: только ужесточает вердикт.
+  if (ctx.leader.learningMode && !ctx.approvedByLeader && !isTrusted(ctx)) {
+    return { verdict: "APPROVE", reasons: ["Режим обучения: без вашего подтверждения ничего не делаю"], signals };
   }
   return { verdict: "ALLOW", reasons: ["Правила не требуют подтверждения"], signals };
 }
