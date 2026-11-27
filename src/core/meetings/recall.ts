@@ -1,6 +1,6 @@
 /**
  * Recall.ai (SPEC 4.5.3): бот заходит на созвон, камера бота — публичная страница аватара, после встречи отдаёт транскрипт.
- * Доступы и настройки (ключ, регион, адрес приложения, цена часа) — только из подключения BUILTIN_RECALL руководителя.
+ * Доступы и настройки (ключ и регион; адрес приложения берётся из запросов пользователя, цена часа — с прайса recall.ai) — только из подключения BUILTIN_RECALL руководителя.
  * Внешний вызов идёт только через Policy Gate: запрет `meeting.join_bot` в правах подключения останавливает запуск.
  * Режим AVATAR у встречи — постоянное согласие руководителя (правило профиля), поэтому APPROVE по правам не блокирует.
  */
@@ -8,10 +8,10 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { PrismaClient } from "@/generated/prisma/client";
 import { clock } from "../clock";
-import { decryptJson } from "../connectors/crypto";
+import { decryptJson, encryptJson } from "../connectors/crypto";
 import { evaluate, getConnectorToolPermission, loadGateLeader, logVerdict } from "../policy-gate";
 import { recallCostRub, recordServiceUsage } from "../usage";
-import { parsePricePerHour } from "../connectors/verify";
+import { recallHourPriceRub } from "./recall-price";
 import { detectPlatform, MeetingUrlSchema } from "./platform";
 
 const RECALL_TYPE = "BUILTIN_RECALL";
@@ -24,7 +24,6 @@ export interface RecallAuth {
   /** Публичный адрес приложения: по нему Recall открывает страницу аватара. */
   appUrl: string;
   /** Цена часа бота для учёта стоимости; 0 — не задана. */
-  pricePerHourRub: number;
 }
 
 /** Все настройки Recall задаёт пользователь в «Подключениях»; переменных окружения для интеграции нет. */
@@ -38,8 +37,19 @@ export async function loadRecallAuth(db: PrismaClient, leaderId: string): Promis
     region: values.region || "us-east-1",
     connectorId: row.id,
     appUrl: (values.appUrl || process.env.APP_URL || "http://localhost:3000").replace(/\/+$/, ""),
-    pricePerHourRub: parsePricePerHour(values.pricePerHourRub),
   };
+}
+
+/**
+ * Запоминает адрес, по которому пользователь сейчас открыл приложение: по нему бот откроет страницу аватара.
+ * Вызывается из запросов пользователя, поэтому подключение, сохранённое до появления этого поля, чинится само.
+ */
+export async function rememberOrigin(db: PrismaClient, leaderId: string, origin: string | undefined): Promise<void> {
+  if (!origin) return;
+  const row = await db.connector.findFirst({ where: { leaderId, type: RECALL_TYPE } });
+  const stored = row && decryptJson<{ values?: Record<string, string> }>(row.encryptedConfig);
+  if (!row || !stored || stored.values?.appUrl === origin) return;
+  await db.connector.updateMany({ where: { id: row.id, leaderId }, data: { encryptedConfig: encryptJson({ ...stored, values: { ...stored.values, appUrl: origin } }) } });
 }
 
 const base = (a: RecallAuth) => `https://${a.region}.recall.ai/api/v1`;
@@ -117,7 +127,7 @@ export async function launchAvatarBot(db: PrismaClient, leaderId: string, meetin
     });
     // Recall считает минуты бота: пишем плановую длительность встречи (SPEC инвариант 8).
     const seconds = Math.max(0, (meeting.endAt.getTime() - meeting.startAt.getTime()) / 1000);
-    await recordServiceUsage(db, { leaderId, pipeline: "AVATAR_SESSION", provider: "recall.ai", model: "bot", audioSeconds: seconds, costRub: recallCostRub(seconds, { RECALL_PRICE_RUB_PER_HOUR: String(auth.pricePerHourRub) }) }).catch(() => {});
+    await recordServiceUsage(db, { leaderId, pipeline: "AVATAR_SESSION", provider: "recall.ai", model: "bot", audioSeconds: seconds, costRub: recallCostRub(seconds, { RECALL_PRICE_RUB_PER_HOUR: String(await recallHourPriceRub().catch(() => 0)) }) }).catch(() => {});
     return { status: "launched", botId };
   } catch (e) {
     await db.meeting.update({ where: { id: meetingId }, data: { recallBotId: null } });

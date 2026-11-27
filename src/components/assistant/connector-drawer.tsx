@@ -52,14 +52,7 @@ function Body({ item, leaderId, api, onClose, onChanged }: Props & { item: Catal
   const connected = item.connectorId !== null;
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  // `{origin}` в начальном значении — адрес, по которому открыто приложение (например, публичный адрес для Recall).
-  const [values, setValues] = useState<Record<string, string>>(() => {
-    const out = { ...item.values };
-    for (const f of item.auth.fields) {
-      if (!f.secret && !out[f.key] && f.initial?.includes("{origin}")) out[f.key] = f.initial.replace("{origin}", window.location.origin);
-    }
-    return out;
-  });
+  const [values, setValues] = useState<Record<string, string>>(item.values);
   const [secrets, setSecrets] = useState<Record<string, string>>({});
   const [mcpUrl, setMcpUrl] = useState(item.mcpUrl ?? "");
   const [token, setToken] = useState("");
@@ -200,6 +193,15 @@ function Body({ item, leaderId, api, onClose, onChanged }: Props & { item: Catal
                     {f.label}
                     {f.optional && <span className="text-dim"> · необязательно</span>}
                   </span>
+                  {f.options ? (
+                    <select value={values[f.key] || f.initial || ""} onChange={(e) => setValues({ ...values, [f.key]: e.target.value })} className={inputCls}>
+                      {f.options.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
                   <input
                     type={f.secret ? "password" : "text"}
                     autoComplete="off"
@@ -208,7 +210,8 @@ function Body({ item, leaderId, api, onClose, onChanged }: Props & { item: Catal
                     placeholder={filled ? "•••••••• (оставьте пустым, чтобы не менять)" : f.placeholder}
                     className={inputCls}
                   />
-                  {f.help && <span className="text-xs text-dim">{f.help}</span>}
+                  )}
+                  {f.help &&<span className="text-xs text-dim">{f.help}</span>}
                 </label>
               );
             })}

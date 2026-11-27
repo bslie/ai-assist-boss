@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { ConnectSchema, connectModule, listCatalog } from "@/core/connectors/service";
 import { db } from "@/db/client";
 import { jsonError, parseBody, requireLeaderId } from "@/lib/http";
+import { requestOrigin } from "@/lib/origin";
 
 export const maxDuration = 30;
 
@@ -20,6 +21,6 @@ export async function POST(req: Request) {
   if (!auth.ok) return auth.res;
   const body = await parseBody(req, ConnectSchema);
   if (!body.ok) return body.res;
-  const res = await connectModule(db, auth.leaderId, body.data);
+  const res = await connectModule(db, auth.leaderId, body.data, { origin: requestOrigin(req) });
   return res.ok ? NextResponse.json(res.value, { status: 201 }) : jsonError(STATUS[res.code], res.message);
 }

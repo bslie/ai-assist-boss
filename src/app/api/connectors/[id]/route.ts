@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { removeConnector, updateConnector, UpdateSchema } from "@/core/connectors/service";
 import { db } from "@/db/client";
 import { jsonError, parseBody, requireLeaderId } from "@/lib/http";
+import { requestOrigin } from "@/lib/origin";
 
 const STATUS = { NOT_FOUND: 404, INVALID: 422, CONFLICT: 409, UNAVAILABLE: 503 } as const;
 
@@ -11,7 +12,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (!auth.ok) return auth.res;
   const body = await parseBody(req, UpdateSchema);
   if (!body.ok) return body.res;
-  const res = await updateConnector(db, auth.leaderId, (await params).id, body.data);
+  const res = await updateConnector(db, auth.leaderId, (await params).id, body.data, { origin: requestOrigin(req) });
   return res.ok ? NextResponse.json({ ok: true }) : jsonError(STATUS[res.code], res.message);
 }
 

@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { readyClock } from "@/core/clock";
-import { joinByLink } from "@/core/meetings/recall";
+import { joinByLink, rememberOrigin } from "@/core/meetings/recall";
 import { db } from "@/db/client";
 import { jsonError, parseBody, requireLeaderId } from "@/lib/http";
+import { requestOrigin } from "@/lib/origin";
 
 const Body = z.object({ url: z.string().max(2000), meetingId: z.string().min(1).max(64).optional() });
 
@@ -14,6 +15,7 @@ export async function POST(req: Request) {
   const body = await parseBody(req, Body);
   if (!body.ok) return body.res;
   await readyClock();
+  await rememberOrigin(db, auth.leaderId, requestOrigin(req)).catch(() => {});
   const res = await joinByLink(db, auth.leaderId, body.data);
   if (res.status === "rejected") return jsonError(400, res.reason);
   if (res.status === "failed") return jsonError(502, res.reason);

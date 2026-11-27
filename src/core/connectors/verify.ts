@@ -9,14 +9,12 @@ export const RECALL_REGIONS = ["us-east-1", "us-west-2", "eu-central-1", "ap-nor
 const RecallValues = z.object({
   apiKey: z.string().min(1),
   region: z.enum(RECALL_REGIONS, { message: `Регион: ${RECALL_REGIONS.join(", ")}` }),
+  /** Берётся из запроса, пользователь его не вводит; проверка — защита от мусора в записи. */
   appUrl: z
     .string()
-    .url({ message: "Адрес приложения: полная ссылка вида https://…" })
-    .refine((s) => !URL.canParse(s) || ["https:", "http:"].includes(new URL(s).protocol), "Адрес приложения должен начинаться с https://"),
-  pricePerHourRub: z
-    .string()
-    .optional()
-    .refine((s) => !s || (Number.isFinite(Number(s.replace(",", "."))) && Number(s.replace(",", ".")) >= 0), "Цена часа — число, например 35"),
+    .url({ message: "Не удалось определить адрес приложения" })
+    .refine((s) => !URL.canParse(s) || ["https:", "http:"].includes(new URL(s).protocol), "Не удалось определить адрес приложения")
+    .optional(),
 });
 
 /** Бросает Error с понятным текстом, если доступы не подходят. */
@@ -35,8 +33,3 @@ export async function verifyConnectorCredentials(moduleId: string, values: Recor
   if (!res.ok) throw new Error(`Recall ответил ошибкой ${res.status}. Попробуйте позже.`);
 }
 
-/** Цена часа из поля формы: пусто или не число → 0. */
-export function parsePricePerHour(v: string | undefined): number {
-  const n = Number((v ?? "").replace(",", "."));
-  return Number.isFinite(n) && n > 0 ? n : 0;
-}
