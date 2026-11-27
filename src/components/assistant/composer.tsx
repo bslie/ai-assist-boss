@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowUp, ChevronDown, Mic, X } from "lucide-react";
+import { z } from "zod";
 import type { ChatReply } from "@/core/chat";
 import { cn } from "@/lib/utils";
 
@@ -16,6 +17,40 @@ interface Msg {
   actions?: ChatReply["actions"];
   /** Кнопка уже нажата: показываем итог вместо неё. */
   result?: string;
+}
+
+const MAX_SAVED = 40;
+const SavedSchema = z.object({
+  open: z.boolean(),
+  msgs: z.array(
+    z.object({
+      from: z.enum(["me", "bot"]),
+      text: z.string(),
+      draft: z.string().optional(),
+      result: z.string().optional(),
+      actions: z.array(z.record(z.string(), z.unknown())).optional(),
+    }),
+  ),
+});
+
+/** Сохранённая переписка; битые или чужие данные в хранилище игнорируем. */
+function loadChat(key: string): { msgs: Msg[]; open: boolean } | null {
+  try {
+    const raw = sessionStorage.getItem(key);
+    const parsed = raw ? SavedSchema.safeParse(JSON.parse(raw)) : null;
+    return parsed?.success ? (parsed.data as { msgs: Msg[]; open: boolean }) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveChat(key: string, v: { msgs: Msg[]; open: boolean }) {
+  try {
+    if (v.msgs.length === 0) sessionStorage.removeItem(key);
+    else sessionStorage.setItem(key, JSON.stringify({ open: v.open, msgs: v.msgs.slice(-MAX_SAVED) }));
+  } catch {
+    // хранилище недоступно или переполнено: чат работает, просто не переживёт перезагрузку
+  }
 }
 
 function Avatar() {
@@ -40,6 +75,27 @@ export function Composer({ leaderId, children }: { leaderId: string; /** Под 
   useEffect(() => {
     end.current?.scrollIntoView({ block: "end", behavior: "smooth" });
   }, [msgs, busy, open]);
+
+  // Переписка переживает перезагрузку страницы и сворачивание: лежит в sessionStorage вкладки, отдельно для каждого руководителя.
+  // «Закрыть чат» (крестик) стирает её. Читаем после монтирования, чтобы разметка сервера и клиента совпала.
+  const storeKey = `chat:${leaderId}`;
+  const restored = useRef(false);
+  const restore = useCallback(() => {
+    const saved = loadChat(storeKey);
+    if (saved) {
+      setMsgs(saved.msgs);
+      setOpen(saved.open);
+    }
+    restored.current = true;
+  }, [storeKey]);
+  useEffect(() => {
+    // Чтение внешнего хранилища после монтирования: единственный способ не получить расхождение гидрации.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    restore();
+  }, [restore]);
+  useEffect(() => {
+    if (restored.current) saveChat(storeKey, { msgs, open });
+  }, [msgs, open, storeKey]);
 
   // Клик мимо чата (и поля ввода) сворачивает переписку, но не закрывает её.
   useEffect(() => {
