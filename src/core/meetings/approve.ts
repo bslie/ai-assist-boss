@@ -32,12 +32,73 @@ const PayloadSchema = z.object({
         }),
       )
       .max(20),
+    previousUpdates: z
+      .array(
+        z.object({
+          taskId: z.string().min(1),
+          outcome: z.enum(["DONE", "IN_PROGRESS", "NOT_RESOLVED", "CHANGED"]),
+          comment: z.string(),
+          newTitle: z.string().min(3).nullable(),
+          newDueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+        }),
+      )
+      .max(20)
+      .default([]),
   }),
 });
 
+type PreviousUpdate = z.infer<typeof PayloadSchema>["args"]["previousUpdates"][number];
+
+/**
+ * Итоги встречи по прошлым поручениям: руководитель уже утвердил их вместе с протоколом.
+ * Только задачи этого руководителя и только открытые; выполненные не трогаем.
+ * Новый срок считается переносом (rescheduleCount), чтобы метрика «с первого раза» оставалась честной.
+ */
+async function applyPreviousUpdates(db: PrismaClient, leaderId: string, meetingTitle: string, updates: readonly PreviousUpdate[]): Promise<number> {
+  if (!updates.length) return 0;
+  const gate = evaluate("task.update", { leader: await loadGateLeader(db, leaderId), isOutbound: false, approvedByLeader: true, trustScope: "TASK_ASSIGN" });
+  await logVerdict(db, leaderId, "task.update", gate, { metadata: { kind: "protocol_previous_updates", count: updates.length } });
+  if (gate.verdict === "DENY") return 0;
+
+  const day = new Intl.DateTimeFormat("ru-RU", { timeZone: "Europe/Moscow", day: "numeric", month: "long" }).format(clock.now());
+  let applied = 0;
+  for (const u of updates) {
+    const task = await db.task.findFirst({ where: { id: u.taskId, leaderId, status: { not: "DONE" } } });
+    if (!task) continue;
+    const label = { DONE: "выполнено", IN_PROGRESS: "в работе", NOT_RESOLVED: "не решено", CHANGED: "задача изменилась" }[u.outcome];
+    const note = `\n\nВстреча «${meetingTitle}», ${day}: ${label}${u.comment ? `. ${u.comment}` : ""}`;
+    const newDue = u.newDueDate ? new Date(`${u.newDueDate}T18:00:00+03:00`) : null;
+    const moved = newDue !== null && newDue.getTime() !== task.dueAt.getTime();
+    const status =
+      u.outcome === "DONE" ? ("DONE" as const) : u.outcome === "IN_PROGRESS" && (task.status === "NEW" || task.status === "ACCEPTED") ? ("IN_PROGRESS" as const) : task.status;
+    await db.task.update({
+      where: { id: task.id },
+      data: {
+        status,
+        description: task.description + note,
+        ...(u.outcome === "CHANGED" && u.newTitle ? { title: u.newTitle } : {}),
+        ...(moved ? { dueAt: newDue, rescheduleCount: { increment: 1 } } : {}),
+      },
+    });
+    await db.activityLog.create({
+      data: {
+        createdAt: clock.now(),
+        leaderId,
+        pipeline: "TASK",
+        action: `TASK_PROTOCOL_${u.outcome}`,
+        reason: `«${task.title}»: ${label} по итогам встречи «${meetingTitle}»${u.newTitle ? `; теперь «${u.newTitle}»` : ""}${moved ? `; новый срок ${u.newDueDate}` : ""}`,
+        metadata: { taskId: task.id, outcome: u.outcome, ...(u.newTitle ? { newTitle: u.newTitle } : {}), ...(moved ? { newDueDate: u.newDueDate } : {}) },
+      },
+    });
+    await publishEvent(leaderId, { type: "task.updated", data: { id: task.id } });
+    applied++;
+  }
+  return applied;
+}
+
 export type ProtocolExecResult =
   | { applicable: false; reason: string }
-  | { applicable: true; tasksCreated: number; mailsSent: number; mailsFailed: number; mailNote: string | null; nextMeeting: string };
+  | { applicable: true; tasksCreated: number; tasksUpdated: number; mailsSent: number; mailsFailed: number; mailNote: string | null; nextMeeting: string };
 
 export async function executeApprovedProtocol(
   db: PrismaClient,
@@ -51,7 +112,7 @@ export async function executeApprovedProtocol(
   if (!d || (d.status !== "APPROVED" && d.status !== "EDITED_APPROVED")) return skip("Решение не утверждено");
   const payload = PayloadSchema.safeParse(d.proposedPayload);
   if (!payload.success) return skip("Некорректные данные протокола");
-  const { meetingId, assignments } = payload.data.args;
+  const { meetingId, assignments, previousUpdates } = payload.data.args;
 
   const meeting = await db.meeting.findFirst({ where: { id: meetingId, leaderId } });
   if (!meeting) return skip("Встреча не найдена");
@@ -88,6 +149,8 @@ export async function executeApprovedProtocol(
     await publishEvent(leaderId, { type: "task.updated", data: { id: task.id, created: true } });
   }
 
+  const tasksUpdated = await applyPreviousUpdates(db, leaderId, meeting.title, previousUpdates);
+
   // «Всем» — участники из календаря; «из протокола» — только исполнители поручений.
   const recipients = mode === "IN_PROTOCOL" ? [...assigneeEmails] : meeting.attendees;
   const mail = await sendProtocolMail(db, leaderId, { title: meeting.title, attendees: recipients }, markdown, deps.connector);
@@ -103,13 +166,13 @@ export async function executeApprovedProtocol(
       leaderId,
       pipeline: "MEETING",
       action: "PROTOCOL_APPROVED",
-      reason: `Протокол «${meeting.title}» утверждён: поручений ${tasksCreated}, писем ${mail.sent} (${mode === "IN_PROTOCOL" ? "только исполнителям" : "всем участникам"})`,
+      reason: `Протокол «${meeting.title}» утверждён: поручений ${tasksCreated}, обновлено прошлых ${tasksUpdated}, писем ${mail.sent} (${mode === "IN_PROTOCOL" ? "только исполнителям" : "всем участникам"})`,
       savedMinutes: Number.isFinite(saved) ? saved : DEFAULT_SAVED_MINUTES,
-      metadata: { decisionId, meetingId, tasksCreated, mailsSent: mail.sent, mailsFailed: mail.failed, recipients: mode },
+      metadata: { decisionId, meetingId, tasksCreated, tasksUpdated, mailsSent: mail.sent, mailsFailed: mail.failed, recipients: mode },
     },
   });
   await publishEvent(leaderId, { type: "metrics.updated", data: {} });
-  return { applicable: true, tasksCreated, mailsSent: mail.sent, mailsFailed: mail.failed, mailNote: mail.note, nextMeeting: next.status };
+  return { applicable: true, tasksCreated, tasksUpdated, mailsSent: mail.sent, mailsFailed: mail.failed, mailNote: mail.note, nextMeeting: next.status };
 }
 
 async function sendProtocolMail(

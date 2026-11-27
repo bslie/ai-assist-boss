@@ -217,4 +217,59 @@ describe.skipIf(!dbUp)("протокол встречи: от транскрип
     expect(mail.sent.map((m) => m.to).sort()).toEqual(team.map((e) => e.email.toLowerCase()).sort());
     expect((m3.attendees as string[]).length).toBeGreaterThan(2);
   });
+
+  it("итоги по прошлым поручениям: в протоколе «было → станет», после утверждения задачи обновлены", async () => {
+    const m4 = await db.meeting.findFirstOrThrow({ where: { leaderId, title: "Планёрка направления", isProtocolApproved: false }, orderBy: { startAt: "asc" } });
+    const qs = await buildAgendaQuestions(db, leaderId, m4.id);
+    expect(qs.map((q) => q.question.match(/«(.+?)»/)?.[1])).toEqual(["Отправить КП клиенту", "Согласовать договор", "Прислать креативы кампании"]);
+    await db.meeting.update({ where: { id: m4.id }, data: { agendaQuestions: qs } });
+
+    let prompt = "";
+    const provider: LlmProvider = {
+      name: "fake",
+      model: "fake",
+      async generate(req) {
+        prompt = req.prompt;
+        return {
+          object: {
+            ...PROTOCOL,
+            assignments: [],
+            previousUpdates: [
+              { ref: "P1", outcome: "DONE", comment: "КП отправлено", newTitle: null, newDueDate: null },
+              { ref: "P3", outcome: "CHANGED", comment: "Нужны только баннеры", newTitle: "Прислать баннеры кампании", newDueDate: "2026-12-20" },
+              { ref: "P9", outcome: "DONE", comment: "выдумка", newTitle: null, newDueDate: null },
+            ],
+          },
+          promptTokens: 1,
+          completionTokens: 1,
+        };
+      },
+    };
+    const llm = new LlmClient({ provider, cache: new MemoryCache() });
+    const res = await generateProtocolDecision({ db, llm, examples: [] }, leaderId, m4.id, TRANSCRIPT + " четвёртый раз");
+    if (!res.ok) throw new Error(res.reason);
+    expect(prompt).toContain("P1: «Отправить КП клиенту»");
+
+    const d = await db.decision.findUniqueOrThrow({ where: { id: res.decisionId } });
+    expect(d.draftText).toContain("## Прошлые поручения");
+    expect(d.draftText).toContain("формулировка → «Прислать баннеры кампании»");
+    expect(d.aiRecommendation).toContain("выполнено 1, задача изменилась 1");
+    // Неизвестная метка P9 отброшена: ничего не обновляем вслепую.
+    expect(((d.proposedPayload as { args: { previousUpdates: unknown[] } }).args.previousUpdates)).toHaveLength(2);
+
+    const ids = Object.fromEntries(qs.map((q) => [q.question.match(/«(.+?)»/)![1], q.taskId!]));
+    expect(await db.task.findUniqueOrThrow({ where: { id: ids["Отправить КП клиенту"] } })).toMatchObject({ status: "NEW" });
+
+    await resolveDecision(db, leaderId, d.id, { action: "APPROVE", protocolRecipients: "IN_PROTOCOL" });
+    const kp = await db.task.findUniqueOrThrow({ where: { id: ids["Отправить КП клиенту"] } });
+    expect(kp.status).toBe("DONE");
+    const banners = await db.task.findUniqueOrThrow({ where: { id: ids["Прислать креативы кампании"] } });
+    expect(banners.title).toBe("Прислать баннеры кампании");
+    expect(banners.dueAt.toISOString()).toBe("2026-12-20T15:00:00.000Z");
+    expect(banners.rescheduleCount).toBe(1);
+    expect(banners.description).toContain("задача изменилась. Нужны только баннеры");
+    const contract = await db.task.findUniqueOrThrow({ where: { id: ids["Согласовать договор"] } });
+    expect(contract.status).toBe("NEW");
+    expect(await db.activityLog.count({ where: { leaderId, action: { startsWith: "TASK_PROTOCOL_" } } })).toBe(2);
+  });
 });
