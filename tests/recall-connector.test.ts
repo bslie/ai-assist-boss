@@ -21,7 +21,7 @@ describe("проверка доступов Recall", () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it("принимает рабочий ключ и ходит в свой регион", async () => {
-    const f = vi.fn(async (_url: string) => new Response("{}", { status: 200 }));
+    const f = vi.fn(async (...args: unknown[]) => (void args, new Response("{}", { status: 200 })));
     vi.stubGlobal("fetch", f);
     await expect(verifyConnectorCredentials("BUILTIN_RECALL", good)).resolves.toBeUndefined();
     expect(String(f.mock.calls[0]?.[0])).toContain("eu-central-1.recall.ai");

@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 type Props = { telegramEnabled: boolean; next: string; initialError: string | null };
 
 const TELEGRAM_ERRORS: Record<string, string> = {
-  not_configured: "Вход через Telegram не настроен: задайте TELEGRAM_LOGIN_CLIENT_ID и TELEGRAM_LOGIN_CLIENT_SECRET.",
+  not_configured: "Вход через Telegram сейчас недоступен. Войдите по логину и паролю.",
   denied: "Вход через Telegram отменён.",
   state: "Сессия входа устарела, попробуйте ещё раз.",
   exchange: "Telegram не подтвердил вход, попробуйте ещё раз.",
@@ -61,15 +61,20 @@ export function LoginForm({ telegramEnabled, next, initialError }: Props) {
     e.preventDefault();
     setBusy(true);
     setError(null);
-    const res = await fetch("/api/auth/login", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ login, password }),
-    });
-    setBusy(false);
-    if (res.ok) return done();
-    const data = (await res.json().catch(() => ({}))) as { error?: string };
-    setError(data.error ?? "Не удалось войти");
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ login, password }),
+      });
+      if (res.ok) return done();
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      setError(data.error ?? "Не удалось войти");
+    } catch {
+      setError("Нет связи с сервером. Проверьте интернет и попробуйте ещё раз.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -167,9 +172,7 @@ export function LoginForm({ telegramEnabled, next, initialError }: Props) {
               <Send className="size-4" aria-hidden="true" /> Войти через Telegram
             </a>
           </>
-        ) : (
-          <p className="text-center text-xs text-dim">Вход через Telegram не настроен: задайте TELEGRAM_LOGIN_CLIENT_ID и TELEGRAM_LOGIN_CLIENT_SECRET.</p>
-        )}
+        ) : null}
       </div>
     </div>
   );

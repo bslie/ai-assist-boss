@@ -144,16 +144,15 @@ export function Composer({ leaderId, children }: { leaderId: string; /** Под 
 
   // Подсказки составляет модель по контексту руководителя; после действия в чате они обновляются.
   const [suggestions, setSuggestions] = useState<string[] | null>(null);
-  const refreshSuggestions = useRef(() => {});
-  refreshSuggestions.current = () => {
+  const refreshSuggestions = useCallback(() => {
     fetch(`/api/chat/suggestions${q}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((j: { suggestions?: string[] } | null) => setSuggestions(j?.suggestions?.length ? j.suggestions : PLACEHOLDER_SUGGESTIONS))
       .catch(() => setSuggestions(PLACEHOLDER_SUGGESTIONS));
-  };
+  }, [q]);
   useEffect(() => {
-    refreshSuggestions.current();
-  }, [leaderId]);
+    refreshSuggestions();
+  }, [refreshSuggestions]);
 
   async function send(raw: string) {
     const t = raw.trim();
@@ -228,7 +227,7 @@ export function Composer({ leaderId, children }: { leaderId: string; /** Под 
               aria-label="Закрыть чат"
               onClick={() => {
                 setMsgs([]);
-                refreshSuggestions.current();
+                refreshSuggestions();
               }}
               className="flex size-9 items-center justify-center rounded-full text-dim transition-colors hover:bg-raised hover:text-foreground"
             >

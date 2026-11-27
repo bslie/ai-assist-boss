@@ -53,6 +53,7 @@ const RESOLVE_MSG: Record<string, string> = {
   NOT_FOUND: "Карточка не найдена",
   ALREADY_RESOLVED: "Уже решено",
   BAD_DELEGATE: "Этот сотрудник недоступен",
+  DRAFT_INCOMPLETE: "В черновике есть пропуск. Нажмите «Поправить» и впишите значение",
 };
 
 async function resolveAndRefresh(deps: Deps, chatId: string, decisionId: string, leaderId: string, input: ResolveInput): Promise<string> {

@@ -8,6 +8,7 @@
 import { z } from "zod";
 import type { PrismaClient } from "@/generated/prisma/client";
 import { readyClock } from "./clock";
+import { findPlaceholders } from "./draft-placeholders";
 import { publishEvent } from "./events";
 import { markHandledEmails } from "./mail/mark-read";
 import { executeApprovedReply } from "./mail/send";
@@ -36,7 +37,7 @@ const STATUS = {
 
 export type ResolveResult =
   | { ok: true; status: string }
-  | { ok: false; code: "NOT_FOUND" | "ALREADY_RESOLVED" | "BAD_DELEGATE"; message: string };
+  | { ok: false; code: "NOT_FOUND" | "ALREADY_RESOLVED" | "BAD_DELEGATE" | "DRAFT_INCOMPLETE"; message: string };
 
 export async function resolveDecision(
   db: PrismaClient,
@@ -55,6 +56,14 @@ export async function resolveDecision(
   if (input.action === "DELEGATE") {
     const assignee = await db.employee.findFirst({ where: { id: input.delegateToId, leaderId } });
     if (!assignee) return { ok: false, code: "BAD_DELEGATE", message: "Исполнитель не найден у этого руководителя" };
+  }
+
+  // Письмо с незаполненным пропуском («[срок]») наружу не уходит: сначала руководитель впишет значение.
+  if ((input.action === "APPROVE" || input.action === "EDITED_APPROVED") && decision.type !== "MEETING_PROTOCOL") {
+    const gaps = findPlaceholders(input.action === "EDITED_APPROVED" ? input.editedText : decision.draftText);
+    if (gaps.length) {
+      return { ok: false, code: "DRAFT_INCOMPLETE", message: `В тексте остался пропуск ${gaps.join(", ")}. Нажмите «Поправить», впишите значение и отправьте.` };
+    }
   }
 
   const status = STATUS[input.action];

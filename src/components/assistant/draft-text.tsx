@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import { splitPlaceholders } from "@/core/draft-placeholders";
 import { cn } from "@/lib/utils";
 
 type Block =
@@ -42,9 +43,24 @@ function parse(src: string): Block[] {
   return out;
 }
 
+/** Пропуск «[срок]» подсвечен: его нужно вписать до отправки (см. `core/draft-placeholders`). */
+function withGaps(text: string, key: number): ReactNode {
+  const parts = splitPlaceholders(text);
+  if (parts.length === 1 && !parts[0].gap) return text;
+  return parts.map((p, k) =>
+    p.gap ? (
+      <mark key={`${key}-${k}`} className="rounded bg-amber/20 px-1 font-sans text-[0.9em] text-amber">
+        {p.text}
+      </mark>
+    ) : (
+      p.text
+    ),
+  );
+}
+
 function inline(text: string): ReactNode[] {
   return text.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
-    part.startsWith("**") && part.endsWith("**") && part.length > 4 ? <strong key={i} className="font-semibold">{part.slice(2, -2)}</strong> : part,
+    part.startsWith("**") && part.endsWith("**") && part.length > 4 ? <strong key={i} className="font-semibold">{part.slice(2, -2)}</strong> : withGaps(part, i),
   );
 }
 

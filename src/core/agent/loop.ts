@@ -49,7 +49,8 @@ export interface AgentOutcome {
 const OBS_LIMIT = 3000;
 
 const compactSchema = (t: Tool): string => {
-  const { $schema: _s, ...rest } = z.toJSONSchema(t.args) as Record<string, unknown>;
+  const rest = { ...(z.toJSONSchema(t.args) as Record<string, unknown>) };
+  delete rest.$schema;
   return JSON.stringify(rest);
 };
 

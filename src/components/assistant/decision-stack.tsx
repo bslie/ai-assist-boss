@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { findPlaceholders } from "@/core/draft-placeholders";
 import { cn } from "@/lib/utils";
 import { DraftText } from "./draft-text";
 import type { DecisionCard, Tone } from "@/core/dashboard";
@@ -39,6 +40,16 @@ export function DecisionStack({ leaderId, decisions, delegates }: { leaderId: st
   const [leaving, setLeaving] = useState<{ id: string; exit: Exit } | null>(null);
   // Карточка, с которой открыли страницу, не анимируем (её показывает общее вступление главной); все последующие въезжают.
   const [firstId] = useState(() => decisions[0]?.id);
+  // Открыли правку: курсор в поле, первый пропуск «[срок]» уже выделен: достаточно набрать значение.
+  const editor = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const el = editor.current;
+    if (mode !== "edit" || !el) return;
+    el.focus();
+    const gap = findPlaceholders(el.value)[0];
+    const at = gap ? el.value.indexOf(gap) : -1;
+    if (at >= 0) el.setSelectionRange(at, at + gap.length);
+  }, [mode]);
 
   const queue = decisions.filter((d) => !done.has(d.id));
   const cur = queue[0];
@@ -85,6 +96,14 @@ export function DecisionStack({ leaderId, decisions, delegates }: { leaderId: st
   }
 
   const more = queue.length > 1;
+  // «[срок]» в черновике: модель оставила его руководителю. Письмо с пропуском не отправляем, главная кнопка ведёт в правку.
+  const isProtocol = cur.type === "MEETING_PROTOCOL";
+  const gaps = isProtocol ? [] : findPlaceholders(cur.draft);
+  const editedGaps = findPlaceholders(edited);
+  const openEditor = () => {
+    setEdited(cur.draft ?? "");
+    setMode("edit");
+  };
   return (
     <div className="relative pb-5">
       {/* Подложки стопки: по одной на каждую ждущую карточку (до двух), плавно появляются и исчезают. */}
@@ -136,13 +155,17 @@ export function DecisionStack({ leaderId, decisions, delegates }: { leaderId: st
             <label htmlFor="edited" className="text-xs text-dim">Ваш вариант ответа</label>
             <textarea
               id="edited"
+              ref={editor}
               value={edited}
               onChange={(e) => setEdited(e.target.value)}
               rows={Math.min(14, Math.max(4, edited.split("\n").length + 1))}
-              className="rounded-[14px] border border-line-strong bg-ink p-3 font-serif text-[17px] outline-none"
+              className="rounded-[14px] border border-line-strong bg-ink p-3 font-serif text-[17px] outline-none focus-visible:border-amber/70"
             />
+            {editedGaps.length > 0 && (
+              <div className="text-[13px] text-amber">Впишите вместо {editedGaps.join(", ")}: с пропуском письмо не уйдёт.</div>
+            )}
             <div className="flex gap-2.5">
-              <Button className="h-11 rounded-full px-5 font-semibold" disabled={busy || !edited.trim()} onClick={() => resolve({ action: "EDITED_APPROVED", editedText: edited.trim() })}>
+              <Button className="h-11 rounded-full px-5 font-semibold" disabled={busy || !edited.trim() || editedGaps.length > 0} onClick={() => resolve({ action: "EDITED_APPROVED", editedText: edited.trim() })}>
                 Отправить мой вариант
               </Button>
               <Button variant="ghost" className="h-11 rounded-full px-5 text-dim" onClick={() => setMode("idle")}>Отмена</Button>
@@ -169,17 +192,27 @@ export function DecisionStack({ leaderId, decisions, delegates }: { leaderId: st
 
         {error && <div role="alert" className="panel-in rounded-[14px] bg-[#2a1a18] px-3.5 py-2.5 text-[13px] text-coral">{error}</div>}
 
+        {mode === "idle" && gaps.length > 0 && (
+          <div className="panel-in rounded-[12px] border border-amber/40 bg-amber/10 px-3.5 py-2.5 text-[13px] text-soft">
+            В черновике остался пропуск {gaps.join(", ")}: я не стала выдумывать значение. Впишите его, и письмо уйдёт.
+          </div>
+        )}
+
         {mode === "idle" && (
           <div className="panel-in grid grid-cols-3 gap-2 sm:flex sm:flex-wrap sm:gap-2.5">
-            {cur.type === "MEETING_PROTOCOL" ? (
+            {isProtocol ? (
               <>
                 <Button className="col-span-3 h-12 rounded-full px-6 font-semibold" disabled={busy} onClick={() => resolve({ action: "APPROVE", protocolRecipients: "ALL" })}>Утвердить и разослать всем</Button>
                 <Button variant="outline" className="col-span-3 h-12 rounded-full px-5" disabled={busy} onClick={() => resolve({ action: "APPROVE", protocolRecipients: "IN_PROTOCOL" })}>Только исполнителям</Button>
               </>
+            ) : gaps.length > 0 ? (
+              <Button className="col-span-3 h-12 rounded-full px-6 font-semibold" disabled={busy} onClick={openEditor}>Вписать {gaps[0]}</Button>
             ) : (
               <Button className="col-span-3 h-12 rounded-full px-6 font-semibold" disabled={busy} onClick={() => resolve({ action: "APPROVE" })}>Утвердить</Button>
             )}
-            <Button variant="outline" className="h-12 rounded-full px-3 sm:px-5" disabled={busy} onClick={() => { setEdited(cur.draft ?? ""); setMode("edit"); }}>Поправить</Button>
+            {gaps.length === 0 && (
+              <Button variant="outline" className="h-12 rounded-full px-3 sm:px-5" disabled={busy} onClick={openEditor}>Поправить</Button>
+            )}
             <Button variant="outline" className="h-12 rounded-full px-3 sm:px-5" disabled={busy || delegates.length === 0} onClick={() => setMode("delegate")}>Передать</Button>
             <Button variant="ghost" className="h-12 rounded-full px-3 text-dim sm:px-5" disabled={busy} onClick={() => resolve({ action: "SNOOZE" })}>Не сейчас</Button>
           </div>

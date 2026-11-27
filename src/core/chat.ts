@@ -4,7 +4,6 @@
  * Внешних эффектов у чата нет: ответ на письмо возвращается как ПРЕДЛОЖЕНИЕ с кнопкой, которая
  * идёт обычным путём решения карточки; правила проходят те же проверки, что и страница «Как я работаю».
  */
-import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { PrismaClient } from "@/generated/prisma/client";
 import { runAgent } from "./agent/loop";
