@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { LlmClient, MemoryCache, type LlmProvider } from "@/core/llm";
 import { seedTempLeader } from "./helpers/eval-env";
+import { scriptedLlm } from "./helpers/scripted-llm";
 
 vi.stubEnv("APP_CLOCK_MODE", "real");
 vi.stubEnv("RECALL_API_KEY", "");
@@ -11,20 +11,6 @@ const { handleChat } = await import("@/core/chat");
 const { joinByLink } = await import("@/core/meetings/recall");
 
 const dbUp = await db.$queryRaw`select 1`.then(() => true, () => false);
-
-/** Модель не должна вызываться: разбор ссылки идёт кодом, ссылка в LLM не уходит. */
-function failingLlm() {
-  let calls = 0;
-  const provider: LlmProvider = {
-    name: "fake",
-    model: "m",
-    async generate() {
-      calls++;
-      throw new Error("LLM не должна вызываться");
-    },
-  };
-  return { llm: new LlmClient({ provider, cache: new MemoryCache() }), calls: () => calls };
-}
 
 const ZOOM = "https://us02web.zoom.us/j/123456789?pwd=abc";
 
@@ -47,15 +33,14 @@ describe.skipIf(!dbUp)("чат: зайти на встречу по ссылке
     });
 
   it("Телемост: бот не заходит, объясняем путь через транскрипт, действия нет", async () => {
-    const f = failingLlm();
+    const f = scriptedLlm([{ actions: [{ tool: "meeting.join", args: { url: "https://telemost.yandex.ru/j/123" } }] }]);
     const r = await handleChat(db, f.llm, leaderId, "Зайди на встречу https://telemost.yandex.ru/j/123");
-    expect(f.calls()).toBe(0);
     expect(r.actions).toBeUndefined();
     expect(r.text).toContain("транскрипт");
   });
 
   it("без ближайших встреч предлагает разовую; с одной — привязывает к ней; с двумя — спрашивает", async () => {
-    const f = failingLlm();
+    const f = scriptedLlm([{ actions: [{ tool: "meeting.join", args: { url: ZOOM } }] }]);
     const none = await handleChat(db, f.llm, leaderId, `Подключись к встрече ${ZOOM}`);
     const a0 = none.actions?.[0];
     expect(a0 && "post" in a0 ? a0.post.body : null).toEqual({ url: ZOOM });
@@ -69,13 +54,13 @@ describe.skipIf(!dbUp)("чат: зайти на встречу по ссылке
     const two = await handleChat(db, f.llm, leaderId, `зайди на встречу ${ZOOM}`);
     expect(two.actions).toBeUndefined();
     expect(two.text).toContain("Планёрка А");
-    expect(f.calls()).toBe(0);
   });
 
-  it("ссылка без просьбы зайти идёт обычным путём (в модель)", async () => {
-    const f = failingLlm();
-    await expect(handleChat(db, f.llm, leaderId, `что это за ссылка ${ZOOM}`)).rejects.toThrow();
-    expect(f.calls()).toBeGreaterThan(0);
+  it("ссылка без просьбы зайти: модель отвечает словами, действия нет", async () => {
+    const f = scriptedLlm([{ answer: "Это ссылка на Zoom." }]);
+    const r = await handleChat(db, f.llm, leaderId, `что это за ссылка ${ZOOM}`);
+    expect(r.text).toBe("Это ссылка на Zoom.");
+    expect(r.actions).toBeUndefined();
   });
 
   it("разовая встреча не остаётся, если бот не запустился (Recall не подключён)", async () => {

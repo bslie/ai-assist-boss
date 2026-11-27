@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { LlmClient, MemoryCache, type LlmProvider } from "@/core/llm";
 import { seedTempLeader } from "./helpers/eval-env";
+import { scriptedLlm } from "./helpers/scripted-llm";
 
 vi.stubEnv("APP_CLOCK_MODE", "real");
 vi.stubEnv("CONNECTOR_SECRET", "test-secret-test-secret-1234");
@@ -12,20 +12,6 @@ const { getMailStatus, mailContext, describeActions } = await import("@/core/mai
 const { encryptJson } = await import("@/core/connectors/crypto");
 
 const dbUp = await db.$queryRaw`select 1`.then(() => true, () => false);
-
-/** «Проверь почту» разбирается кодом: модель в этом пути не вызывается. */
-function failingLlm() {
-  let calls = 0;
-  const provider: LlmProvider = {
-    name: "fake",
-    model: "m",
-    async generate() {
-      calls++;
-      throw new Error("LLM не должна вызываться");
-    },
-  };
-  return { llm: new LlmClient({ provider, cache: new MemoryCache() }), calls: () => calls };
-}
 
 describe("описание действий над письмами", () => {
   it("человеческие подписи, нули пропускаются", () => {
@@ -45,11 +31,12 @@ describe.skipIf(!dbUp)("почта в чате (Postgres)", () => {
     await db.leader.deleteMany({ where: { id: leaderId } });
   });
 
-  it("без ящика «проверь почту» объясняет, что подключить, и не зовёт модель", async () => {
-    const f = failingLlm();
+  it("«проверь почту» без ящика: агент зовёт mail.check_now и видит, что подключить", async () => {
+    const f = scriptedLlm([{ call: { tool: "mail.check_now" } }, { answer: "Почта не подключена, подключите Gmail." }]);
     const r = await handleChat(db, f.llm, leaderId, "Проверь мою почту");
-    expect(r.text).toContain("Почта не подключена");
-    expect(f.calls()).toBe(0);
+    expect(r.text).toBe("Почта не подключена, подключите Gmail.");
+    expect(f.calls[1].prompt).toContain("РЕЗУЛЬТАТЫ ИНСТРУМЕНТОВ");
+    expect(f.calls[1].prompt).toContain("Почта не подключена");
     expect(mailContext(await getMailStatus(db, leaderId, clock.now()))[0]).toContain("ни один ящик не подключён");
   });
 

@@ -7,12 +7,13 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { PrismaClient } from "@/generated/prisma/client";
+import { runAgent } from "./agent/loop";
+import { READ_TOOLS } from "./agent/read-tools";
+import type { Tool, ToolCtx, WriteTool } from "./agent/types";
 import { clock } from "./clock";
 import { buildDecisionCards, getToday, plural } from "./dashboard";
 import { detectPlatform, extractMeetingUrl } from "./meetings/platform";
-import { MAIL_TYPES } from "./mail/factory";
-import { pollWithPipeline } from "./mail/pipeline";
-import { describeActions, getMailStatus, mailContext } from "./mail/summary";
+import { getMailStatus, mailContext } from "./mail/summary";
 import { CATEGORY_HELP, EMAIL_ACTIONS, EMAIL_CATEGORIES } from "./email-triage/classify";
 import { publishEvent } from "./events";
 import { ensureSignature } from "./learning/draft";
@@ -66,45 +67,15 @@ export interface ChatReply {
   actions?: ChatAction[];
 }
 
-const ActionSchema = z.object({
-  kind: z.enum(["RULE", "STYLE", "REPLY", "TASK", "LEARNING", "ROUTINE", "PROFILE"]),
-  /** RULE: что делать с письмами категории. */
-  rule: z.object({ name: z.string().min(1).max(120), category: z.enum(EMAIL_CATEGORIES), action: z.enum(EMAIL_ACTIONS) }).nullable(),
-  /** STYLE: правило о манере письма одним предложением. */
-  style: z.string().max(240).nullable(),
-  /** REPLY: кому (как назвал руководитель) и что ответить по смыслу. */
-  reply: z.object({ to: z.string().min(1), gist: z.string().min(1).max(500) }).nullable(),
-  /** TASK: кому (как назвал руководитель), что сделать и срок (ISO 8601 +03:00, null — срок не назван). */
-  task: z.object({ assignee: z.string().min(1), title: z.string().min(3).max(200), dueAt: z.string().nullable() }).nullable(),
-  /** LEARNING: включить/выключить режим обучения (mode) или отпустить/вернуть область (scope + trusted). */
-  learning: z.object({ mode: z.enum(["ON", "OFF"]).nullable(), scope: z.enum(TRUST_SCOPES).nullable(), trusted: z.boolean().nullable() }).nullable(),
-  /** ROUTINE: код рутины из контекста, новое время «ЧЧ:ММ» и/или включить-выключить. */
-  routine: z.object({ code: z.string().min(1).max(40), time: z.string().nullable(), active: z.boolean().nullable() }).nullable(),
-  /** PROFILE: правка профиля словами: цели квартала, порог по деньгам, манера писем, каналы. */
-  profile: z.object({ instruction: z.string().min(3).max(500) }).nullish(),
-});
-
-const AgentSchema = z.object({
-  /** Свободный ответ по делу. Пустой, если сделано действие: его итог сообщит система. */
-  answer: z.string().max(1500),
-  actions: z.array(ActionSchema).max(2),
-});
-
+/** Роль и правила. Что именно умеет помощник, описано в реестре инструментов (agent/), а не здесь. */
 const SYSTEM = [
   "Ты ИИ-помощник руководителя и разговариваешь с ним как толковый ассистент: свободно, по-человечески, коротко, по-русски, на «вы».",
-  "Отвечай на любые вопросы о его дне, встречах, задачах, письмах и правилах, опираясь ТОЛЬКО на контекст ниже.",
-  "Если в контексте нет данных для ответа, скажи об этом прямо, ничего не выдумывай. Если вопрос про выбор (что пропустить, что перенести), дай конкретную рекомендацию и коротко объясни почему, учитывая профиль и защищённые блоки.",
-  "Ты пока не можешь сама переносить встречи, писать в календарь или отправлять письма: говори «предлагаю», а не «сделала». Неясный вопрос уточни одним встречным вопросом.",
-  "Действия (actions) добавляй только когда руководитель явно просит: RULE — как поступать с письмами вида («вендоров в архив»), STYLE — манера письма («пиши короче»), REPLY — «ответь <кому>, что …».",
-  "Для RULE: category из списка и action (ASK_LEADER — спросить меня, DIGEST — в сводку, DELEGATE — передать, IGNORE — в архив, AUTO — решить самой). Категории: " +
-    EMAIL_CATEGORIES.map((c) => `${c} (${CATEGORY_HELP[c]})`).join("; ") + ".",
-  "TASK — «поставь <кому> задачу <что> до <когда>»: assignee как назвал руководитель, title коротко, dueAt в ISO 8601 с +03:00 или null, если срок не назван (не выдумывай срок).",
-  "STYLE — одно предложение в повелительном наклонении. REPLY.gist — суть ответа без выдуманных деталей.",
-  "LEARNING — «выключи режим обучения» (mode OFF), «снова учись» (mode ON), «приглашения решай сама» / «поручения отправляй без меня» (scope + trusted true), «верни отчёты мне» (scope + trusted false). Поручения сотрудникам — scope TASK_ASSIGN.",
-  "ROUTINE — «утренний план присылай в 9:00», «выключи итог недели»: code из списка рутин в контексте, time «ЧЧ:ММ» или null, active true/false или null.",
-  "PROFILE — «добавь цель квартала …», «убери вторую цель», «порог по деньгам 50 тысяч», «пиши мне проще»: что изменить в профиле — в instruction, одной понятной просьбой, как сказал руководитель, с числами из его слов. Правила писем — это RULE, время рутин — ROUTINE.",
-  "Если есть действие, answer оставь пустой строкой: результат действия сообщит система. Не утверждай, что что-то запомнила или отправила.",
-  "На вопросы о самом приложении («что ты умеешь», «где настроить», «что подключить, чтобы ты была на встречах», «почему ты спрашиваешь») отвечай по разделу «О ПРИЛОЖЕНИИ» и по состоянию подключений в контексте, называя раздел, куда идти.",
+  "Отвечай на вопросы о его дне, встречах, задачах, письмах, сотрудниках и правилах. Сначала смотри в КОНТЕКСТ ниже; если там нет данных, возьми их инструментом чтения (call) и только потом отвечай.",
+  "Не выдумывай: если данных нет даже после инструментов, скажи об этом прямо. Если вопрос про выбор (что пропустить, что перенести), дай конкретную рекомендацию и коротко объясни почему, учитывая профиль и защищённые блоки.",
+  "Ты не можешь сама переносить встречи, писать в календарь или отправлять письма: говори «предлагаю», а не «сделала». Неясный вопрос уточни одним встречным вопросом.",
+  "Действия (actions) добавляй только когда руководитель явно просит что-то изменить или сделать. Если есть действие, answer оставь пустой строкой: результат сообщит система. Не утверждай, что что-то запомнила, отправила или запустила.",
+  "Если нужен инструмент чтения, вызови его и оставь answer пустым: на следующем шаге ты получишь результат. Не вызывай один и тот же инструмент дважды.",
+  "На вопросы о самом приложении («что ты умеешь», «где настроить», «что подключить», «почему ты спрашиваешь») отвечай по разделу «О ПРИЛОЖЕНИИ» и по списку инструментов, называя раздел, куда идти.",
 ].join(" ");
 
 /** Справка о продукте для ответов «что ты умеешь» и «где это настроить» (SPEC 1.1). */
@@ -118,7 +89,7 @@ export const APP_GUIDE = [
   "Чтобы я была на встречах: в «Подключения» подключить Recall и календарь со ссылками Zoom/Meet/Teams. Тогда во встрече можно выбрать участие аватаром: бот заходит, задаёт вопросы по прошлому протоколу, а протокол приходит вам на утверждение. Без Recall протокол можно сделать из транскрипта.",
   "Почта: после подключения ящика я сама проверяю его раз в пару минут (при первой проверке — письма за 3 дня), письма, где нужно ваше решение, приходят карточками в «Разговоре», рассылки и отчёты идут в сводку, поручения — сотрудникам; ничего не отправляю без правил и подтверждений. Сказать «проверь почту» — и я проверю сразу и отвечу, что нашла.",
   "Режим обучения: пока он включён, ответы, поручения и действия в почте и календаре идут только после «да» руководителя. После серии решений без правок я предлагаю отпустить область. Кадры, руководство, обещания клиентам и деньги выше порога — всегда с руководителем.",
-  "В чате я умею: рассказать о дне и встречах, посоветовать, что пропустить, запомнить правило или стиль, подготовить ответ на письмо, поставить поручение сотруднику, менять режим обучения, рутины и профиль, зайти на встречу по ссылке Zoom/Meet/Teams/Webex («зайди на встречу <ссылка>», каждое изменение — после кнопки подтверждения). В Телемост и Dion бот не заходит: там протокол делается из транскрипта, который вставляют у встречи в «Вашем дне».",
+  "В чате я отвечаю на свободные вопросы: сама ищу письма, смотрю встречи, задачи, сотрудников, правила и метрики, могу проверить почту сразу. Список возможностей не фиксирован: формулируйте как удобно. Из изменений умею: рассказать о дне и встречах, посоветовать, что пропустить, запомнить правило или стиль, подготовить ответ на письмо, поставить поручение сотруднику, менять режим обучения, рутины и профиль, зайти на встречу по ссылке Zoom/Meet/Teams/Webex («зайди на встречу <ссылка>», каждое изменение — после кнопки подтверждения). В Телемост и Dion бот не заходит: там протокол делается из транскрипта, который вставляют у встречи в «Вашем дне».",
   "Пока не умею: сама переносить встречи в календаре, голосовой ввод.",
 ].join(" ");
 
@@ -178,33 +149,15 @@ export async function handleChat(
   history: { from: "me" | "bot"; text: string }[] = [],
 ): Promise<ChatReply> {
   if (STATUS_RE.test(text)) return { text: await statusText(db, leaderId) };
-  const join = await proposeJoin(db, leaderId, text);
-  if (join) return join;
-  if (CHECK_MAIL_RE.test(text)) return checkMailNow(db, leaderId);
 
   const context = await buildChatContext(db, leaderId);
   const dialog = history.slice(-8).map((m) => `${m.from === "me" ? "Руководитель" : "Помощник"}: ${m.text}`).join("\n");
-  const res = await llm.generateStructured({
-    leaderId,
-    pipeline: "CHAT",
-    schema: AgentSchema,
-    system: `${SYSTEM}\n\nКОНТЕКСТ\n${context}`,
-    prompt: `${dialog ? `Предыдущий разговор:\n${dialog}\n\n` : ""}Руководитель: ${text}`,
-    cacheKey: `chat\u0000${createHash("sha256").update(`${context}\u0000${dialog}\u0000${text}`).digest("hex")}`,
-    temperature: 0.2,
-  });
+  const ctx: ToolCtx = { db, llm, leaderId, text };
+  const res = await runAgent(llm, { ctx, system: `${SYSTEM}\n\nКОНТЕКСТ\n${context}`, dialog, tools: TOOLS });
 
   // Действия исполняет код, и его слово о результате — последнее: модель не вправе сказать «запомнила» за него.
   const replies: ChatReply[] = [];
-  for (const a of res.actions) {
-    if (a.kind === "RULE" && a.rule) replies.push(await addRule(db, leaderId, text, a.rule));
-    else if (a.kind === "STYLE" && a.style) replies.push(await addStyle(db, leaderId, a.style));
-    else if (a.kind === "REPLY" && a.reply) replies.push(await proposeReply(db, llm, leaderId, a.reply));
-    else if (a.kind === "TASK" && a.task) replies.push(await addTask(db, llm, leaderId, a.task));
-    else if (a.kind === "LEARNING" && a.learning) replies.push(await proposeLearning(db, leaderId, a.learning));
-    else if (a.kind === "ROUTINE" && a.routine) replies.push(await proposeRoutine(db, leaderId, a.routine));
-    else if (a.kind === "PROFILE" && a.profile) replies.push(await proposeProfile(db, llm, leaderId, a.profile.instruction));
-  }
+  for (const a of res.actions) replies.push(await proposeAction(ctx, a));
   if (replies.length === 0) return { text: res.answer.trim() || HELP_TEXT };
   const lead = replies.length > 1 || !res.answer.trim() ? [] : [res.answer.trim()];
   const actions = replies.flatMap((r) => r.actions ?? []);
@@ -215,52 +168,30 @@ export async function handleChat(
   };
 }
 
-const CHECK_MAIL_RE = /(проверь|обнови|посмотри|разбери|глянь|подтяни)\s+(мою\s+|мои\s+|новую\s+|новые\s+)?(почт|письм|входящ|ящик)/i;
-const MAIL_BATCH = 30;
-
-/**
- * «Проверь почту»: чтение ящика идёт сразу, без кнопки: это не действие во внешнем сервисе. Что делать с письмами,
- * решают правила и права подключения, как при автоматической проверке. Ответ — человеческий итог, а не «ничего нет».
- */
-async function checkMailNow(db: PrismaClient, leaderId: string): Promise<ChatReply> {
-  const boxes = await db.connector.findMany({ where: { leaderId, isActive: true, type: { in: [...MAIL_TYPES] } }, select: { id: true, name: true } });
-  if (boxes.length === 0) return { text: "Почта не подключена: откройте «Подключения» и добавьте Gmail, Яндекс или Microsoft 365. Дальше я сама буду разбирать письма и приносить вам только то, что требует решения." };
-  const lines: string[] = [];
-  for (const b of boxes) {
-    const res = await pollWithPipeline(db, leaderId, b.id);
-    if (!res.ok) {
-      lines.push(`${b.name}: ${res.message}.`);
-      continue;
-    }
-    if (res.fetched === 0) {
-      lines.push(`${b.name}: новых писем нет.`);
-      continue;
-    }
-    const parts = [`${b.name}: забрала ${res.fetched} ${plural(res.fetched, "письмо", "письма", "писем")}`];
-    const acts = describeActions(res.stats.byAction);
-    if (acts) parts.push(`из них ${acts}`);
-    if (res.stats.decisionsCreated) parts.push(`карточек для вас: ${res.stats.decisionsCreated} (выше в «Решениях»)`);
-    if (res.archived) parts.push(`убрала из входящих рассылок: ${res.archived}`);
-    lines.push(`${parts.join(". ")}.${res.fetched >= MAIL_BATCH ? " Возможно, есть ещё: скажите «проверь почту» снова." : ""}`);
+/** Действие от модели → предложение. Незнакомое имя, не-действие и негодные аргументы дают понятный отказ, а не падение. */
+async function proposeAction(ctx: ToolCtx, a: { tool: string; argsJson: string }): Promise<ChatReply> {
+  const tool = TOOLS.find((x) => x.name === a.tool);
+  if (!tool || tool.kind !== "write") return { text: "Не поняла, какое действие нужно. Скажите иначе или уточните." };
+  let raw: unknown;
+  try {
+    raw = JSON.parse(a.argsJson.trim() || "{}");
+  } catch {
+    return { text: "Не смогла разобрать действие. Скажите ещё раз." };
   }
-  if (lines.every((l) => l.includes("новых писем нет"))) {
-    const s = await getMailStatus(db, leaderId, clock.now());
-    lines.push(s.recentTotal ? `Ранее уже разобрано писем за 3 дня: ${s.recentTotal}. Что с ними сделано — спросите, расскажу.` : "Это не ошибка: при первой проверке я беру письма за последние 3 дня, дальше — только новые.");
-  }
-  return { text: lines.join("\n") };
+  const parsed = tool.args.safeParse(raw);
+  if (!parsed.success) return { text: `Не хватает данных для действия: ${parsed.error.issues.map((i) => i.path.join(".") || "параметры").join(", ")}. Уточните, пожалуйста.` };
+  return (await tool.propose(ctx, parsed.data)) as ChatReply;
 }
 
-const JOIN_RE = /(зайд|подключ|присоедин|подойд|будь\s+на|иди\s+на|приди)/i;
 const JOIN_WINDOW_MS = 3 * 3_600_000;
 
 /**
- * «Зайди на встречу <ссылка>»: разбор без LLM, ссылка не уходит в модель. Бот не запускается сам:
- * чат только предлагает кнопку (SPEC 1.1). К какой встрече относится ссылка — решает ближайшая; неясно — спрашиваем.
+ * Зайти на встречу по ссылке. Бот не запускается сам: чат только предлагает кнопку (SPEC 1.1). К какой встрече
+ * относится ссылка — решает ближайшая; неясно — спрашиваем. Платформу и возможность бота проверяет код, а не модель.
  */
-async function proposeJoin(db: PrismaClient, leaderId: string, text: string): Promise<ChatReply | null> {
-  if (!JOIN_RE.test(text)) return null;
-  const url = extractMeetingUrl(text);
-  if (!url) return null;
+async function proposeJoinFor(db: PrismaClient, leaderId: string, rawUrl: string): Promise<ChatReply> {
+  const url = extractMeetingUrl(rawUrl);
+  if (!url) return { text: "Не вижу ссылку на встречу Zoom, Google Meet, Teams или Webex. Пришлите её целиком." };
   const platform = detectPlatform(url);
   if (!platform.botSupported) {
     return {
@@ -309,7 +240,7 @@ async function statusText(db: PrismaClient, leaderId: string): Promise<string> {
   return lines.join("\n");
 }
 
-async function addRule(db: PrismaClient, leaderId: string, original: string, rule: NonNullable<z.infer<typeof ActionSchema>["rule"]>): Promise<ChatReply> {
+async function addRule(db: PrismaClient, leaderId: string, original: string, rule: { name: string; category: (typeof EMAIL_CATEGORIES)[number]; action: (typeof EMAIL_ACTIONS)[number] }): Promise<ChatReply> {
   const res = await createRule(db, leaderId, {
     name: rule.name,
     description: original.slice(0, 500),
@@ -354,7 +285,7 @@ async function addTask(db: PrismaClient, llm: LlmClient, leaderId: string, task:
 async function proposeLearning(
   db: PrismaClient,
   leaderId: string,
-  l: NonNullable<z.infer<typeof ActionSchema>["learning"]>,
+  l: { mode: "ON" | "OFF" | null; scope: (typeof TRUST_SCOPES)[number] | null; trusted: boolean | null },
 ): Promise<ChatReply> {
   const status = await getLearningStatus(db, leaderId);
   if (l.mode) {
@@ -385,7 +316,7 @@ async function proposeLearning(
 async function proposeRoutine(
   db: PrismaClient,
   leaderId: string,
-  r: NonNullable<z.infer<typeof ActionSchema>["routine"]>,
+  r: { code: string; time: string | null; active: boolean | null },
 ): Promise<ChatReply> {
   const routine = await db.routine.findFirst({ where: { leaderId, code: r.code } });
   if (!routine) return { text: `Не нашла такую рутину. Есть: ${(await db.routine.findMany({ where: { leaderId }, select: { title: true } })).map((x) => `«${x.title}»`).join(", ") || "никаких"}.` };
@@ -471,3 +402,79 @@ async function proposeReply(db: PrismaClient, llm: LlmClient, leaderId: string, 
     actions: [{ label: "Отправить этот ответ", resolve: { decisionId: card.id, body: { action: "EDITED_APPROVED", editedText: body } } }],
   };
 }
+
+// ── Реестр инструментов-действий ────────────────────────────────────────────────────────────────────
+// Каждое действие помощника — запись здесь: имя, описание для модели, схема аргументов, обработчик.
+// Обработчики не исполняют внешних шагов сами: они меняют настройки по правилам приложения либо
+// возвращают предложение с кнопкой, которую нажимает руководитель.
+
+const writeTool = <A extends z.ZodType>(t: WriteTool<A>): WriteTool => t as unknown as WriteTool;
+
+const WRITE_TOOLS: WriteTool[] = [
+  writeTool({
+    kind: "write",
+    name: "rule.create",
+    description:
+      "Правило разбора почты: как поступать с письмами вида («вендоров в архив»). action: ASK_LEADER — спросить меня, DIGEST — в сводку, DELEGATE — передать, IGNORE — в архив, AUTO — решить самой. Категории: " +
+      EMAIL_CATEGORIES.map((c) => `${c} (${CATEGORY_HELP[c]})`).join("; ") +
+      ".",
+    args: z.object({ name: z.string().min(1).max(120), category: z.enum(EMAIL_CATEGORIES), action: z.enum(EMAIL_ACTIONS) }),
+    propose: (c, a) => addRule(c.db, c.leaderId, c.text, a),
+  }),
+  writeTool({
+    kind: "write",
+    name: "style.add",
+    description: "Манера письма («пиши короче»): одно предложение в повелительном наклонении.",
+    args: z.object({ style: z.string().min(3).max(240) }),
+    propose: (c, a) => addStyle(c.db, c.leaderId, a.style),
+  }),
+  writeTool({
+    kind: "write",
+    name: "email.reply",
+    description: "Подготовить ответ на ожидающее письмо: «ответь <кому>, что …». to — как назвал руководитель, gist — суть ответа без выдуманных деталей.",
+    args: z.object({ to: z.string().min(1).max(120), gist: z.string().min(1).max(500) }),
+    propose: (c, a) => proposeReply(c.db, c.llm, c.leaderId, a),
+  }),
+  writeTool({
+    kind: "write",
+    name: "task.create",
+    description: "Поручение сотруднику: «поставь <кому> задачу <что> до <когда>». assignee как назвал руководитель, title коротко, dueAt в ISO 8601 с +03:00 или null, если срок не назван (срок не выдумывай).",
+    args: z.object({ assignee: z.string().min(1).max(120), title: z.string().min(3).max(200), dueAt: z.string().nullable() }),
+    propose: (c, a) => addTask(c.db, c.llm, c.leaderId, a),
+  }),
+  writeTool({
+    kind: "write",
+    name: "learning.change",
+    description:
+      "Режим обучения: «выключи режим обучения» (mode OFF), «снова учись» (mode ON), «приглашения решай сама» / «поручения отправляй без меня» (scope + trusted true), «верни отчёты мне» (scope + trusted false). Поручения сотрудникам — scope TASK_ASSIGN. Областей: " +
+      TRUST_SCOPES.join(", ") +
+      ".",
+    args: z.object({ mode: z.enum(["ON", "OFF"]).nullable(), scope: z.enum(TRUST_SCOPES).nullable(), trusted: z.boolean().nullable() }),
+    propose: (c, a) => proposeLearning(c.db, c.leaderId, a),
+  }),
+  writeTool({
+    kind: "write",
+    name: "routine.change",
+    description: "Рутина: «утренний план присылай в 9:00», «выключи итог недели». code из списка рутин в контексте, time «ЧЧ:ММ» или null, active true/false или null.",
+    args: z.object({ code: z.string().min(1).max(40), time: z.string().nullable(), active: z.boolean().nullable() }),
+    propose: (c, a) => proposeRoutine(c.db, c.leaderId, a),
+  }),
+  writeTool({
+    kind: "write",
+    name: "profile.change",
+    description:
+      "Правка профиля словами: «добавь цель квартала …», «убери вторую цель», «порог по деньгам 50 тысяч», «пиши мне проще». instruction — одной понятной просьбой, как сказал руководитель, с числами из его слов. Правила писем — это rule.create, время рутин — routine.change.",
+    args: z.object({ instruction: z.string().min(3).max(500) }),
+    propose: (c, a) => proposeProfile(c.db, c.llm, c.leaderId, a.instruction),
+  }),
+  writeTool({
+    kind: "write",
+    name: "meeting.join",
+    description: "Отправить ИИ-помощника на встречу по ссылке (Zoom, Google Meet, Teams, Webex): «зайди на встречу <ссылка>». url — ссылка целиком. В Телемост и Dion бот не заходит: код сам объяснит, что делать.",
+    args: z.object({ url: z.string().min(8).max(2000) }),
+    propose: (c, a) => proposeJoinFor(c.db, c.leaderId, a.url),
+  }),
+];
+
+/** Всё, что умеет агент чата: чтение (agent/read-tools.ts) и действия. Новая возможность = новая запись в одном из реестров. */
+export const TOOLS: Tool[] = [...READ_TOOLS, ...WRITE_TOOLS];

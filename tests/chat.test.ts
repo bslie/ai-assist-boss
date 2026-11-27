@@ -24,8 +24,17 @@ function llmWith(out: { answer?: string; actions?: Record<string, unknown>[] }) 
   };
   return { llm: new LlmClient({ provider, cache: new MemoryCache() }), calls };
 }
-const none = { rule: null, style: null, reply: null, task: null, learning: null, routine: null };
-const act = (kind: string, p: Record<string, unknown>) => ({ kind, ...none, ...p });
+/** Старый формат тестов (вид действия + поле) → новый: имя инструмента и аргументы JSON-строкой. */
+const TOOL_OF: Record<string, [string, (p: Record<string, unknown>) => unknown]> = {
+  RULE: ["rule.create", (p) => p.rule],
+  STYLE: ["style.add", (p) => ({ style: p.style })],
+  REPLY: ["email.reply", (p) => p.reply],
+  TASK: ["task.create", (p) => p.task],
+  LEARNING: ["learning.change", (p) => p.learning],
+  ROUTINE: ["routine.change", (p) => p.routine],
+  PROFILE: ["profile.change", (p) => p.profile],
+};
+const act = (kind: string, p: Record<string, unknown>) => ({ tool: TOOL_OF[kind][0], argsJson: JSON.stringify(TOOL_OF[kind][1](p)) });
 
 describe.skipIf(!dbUp)("чат (Postgres)", () => {
   let leaderId = "";
