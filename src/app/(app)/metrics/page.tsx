@@ -6,6 +6,17 @@ import { getCostReport } from "@/core/usage";
 import { db } from "@/db/client";
 import { getCurrentLeader } from "@/lib/current-leader";
 
+/** Внутренние названия конвейеров → понятные пользователю. */
+const PIPELINE_LABELS: Record<string, string> = {
+  EMAIL_TRIAGE: "Разбор входящей почты",
+  DRAFT: "Черновики ответов",
+  CHAT: "Разговор с помощником",
+  PROTOCOL_GEN: "Протоколы встреч",
+  TASK_REVIEW: "Проверка выполненных задач",
+  PROFILE_IMPORT: "Загрузка профиля",
+  RULE_EXTRACTION: "Выучивание правил из ваших правок",
+};
+
 const rub = (n: number) => `${n.toLocaleString("ru-RU", { maximumFractionDigits: 4 })} ₽`;
 
 const Stat = ({ label, value, note }: { label: string; value: string; note?: string }) => (
@@ -57,7 +68,7 @@ async function Metrics() {
             <div className="grid gap-3 sm:grid-cols-3">
               <Stat label="Точность по эталону" value={`${Math.round(ev.accuracy * 1000) / 10}%`} note={`${ev.correct} из ${ev.rows} писем, порог 95%`} />
               <Stat label="Без руководителя из защищённых" value={String(ev.safetyViolations.length)} note="Должно быть 0." />
-              <Stat label="Вызовов модели" value={String(ev.llmCalls + ev.cachedCalls)} note={`${ev.threads} уникальных тредов; из кэша ${ev.cachedCalls}`} />
+              <Stat label="Обращений к ИИ" value={String(ev.llmCalls + ev.cachedCalls)} note={`${ev.threads} разных цепочек писем; повторов без затрат: ${ev.cachedCalls}`} />
             </div>
             <p className="text-sm text-dim">
               Модель {ev.model}, прогон {new Date(ev.generatedAt).toLocaleString("ru-RU", { timeZone: "Europe/Moscow" })}. Повторы одного письма не создали лишних карточек: карточек {ev.decisions}.
@@ -67,7 +78,7 @@ async function Metrics() {
       </section>
 
       <section aria-labelledby="c" className="flex flex-col gap-4">
-        <h2 id="c" className="font-serif text-2xl font-medium">Стоимость по конвейерам</h2>
+        <h2 id="c" className="font-serif text-2xl font-medium">Во что обходится работа помощника</h2>
         {cost.rows.length === 0 ? (
           <p className="text-dim">Пока ни одного вызова модели.</p>
         ) : (
@@ -75,18 +86,18 @@ async function Metrics() {
             <table className="w-full min-w-[560px] text-left text-sm">
               <thead className="text-dim">
                 <tr>
-                  <th className="py-2 pr-4 font-normal">Конвейер</th>
-                  <th className="py-2 pr-4 font-normal">Вызовов</th>
-                  <th className="py-2 pr-4 font-normal">Из кэша</th>
-                  <th className="py-2 pr-4 font-normal">Токены</th>
-                  <th className="py-2 pr-4 font-normal">Всего</th>
-                  <th className="py-2 font-normal">За вызов</th>
+                  <th className="py-2 pr-4 font-normal">Что делал помощник</th>
+                  <th className="py-2 pr-4 font-normal">Обращений к ИИ</th>
+                  <th className="py-2 pr-4 font-normal">Повторы (бесплатно)</th>
+                  <th className="py-2 pr-4 font-normal">Объём текста</th>
+                  <th className="py-2 pr-4 font-normal">Итого</th>
+                  <th className="py-2 font-normal">За обращение</th>
                 </tr>
               </thead>
               <tbody>
                 {cost.rows.map((r) => (
                   <tr key={`${r.pipeline}-${r.provider}-${r.model}`} className="border-t border-line">
-                    <td className="py-2 pr-4">{r.pipeline}</td>
+                    <td className="py-2 pr-4">{PIPELINE_LABELS[r.pipeline] ?? r.pipeline}</td>
                     <td className="py-2 pr-4">{r.calls}</td>
                     <td className="py-2 pr-4">{r.cachedCalls}</td>
                     <td className="py-2 pr-4">{(r.promptTokens + r.completionTokens).toLocaleString("ru-RU")}</td>
