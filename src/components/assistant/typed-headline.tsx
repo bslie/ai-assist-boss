@@ -38,7 +38,21 @@ function commonPrefix(a: Segment[], b: Segment[]): number {
  * Когда текст меняется (пришли новые письма, решили карточку), старый хвост стирается до общего начала,
  * а новый печатается заново.
  */
-export function TypedHeadline({ segments, className }: { segments: Segment[]; className?: string }) {
+export function TypedHeadline({
+  segments,
+  className,
+  as: Tag = "h1",
+  always = false,
+  speed = 1,
+}: {
+  segments: Segment[];
+  className?: string;
+  as?: "h1" | "h2";
+  /** Печатать при каждой загрузке, даже если вступление уже было в этой сессии (страница входа). */
+  always?: boolean;
+  /** Во сколько раз быстрее обычного печатать и стирать. */
+  speed?: number;
+}) {
   const [view, setView] = useState<{ segments: Segment[]; count: number }>({ segments, count: 0 });
   const [live, setLive] = useState(false);
   const viewRef = useRef(view);
@@ -59,7 +73,7 @@ export function TypedHeadline({ segments, className }: { segments: Segment[]; cl
       // Первый показ: вступление печатает заголовок, а если оно уже было, показываем сразу.
       setView({ segments, count: 0 });
       setLive(true);
-      if (introDone() || reduced) {
+      if ((!always && introDone()) || reduced) {
         // flushSync: перерисовать до ближайшей отрисовки, без кадра с пустым заголовком.
         raf = requestAnimationFrame(() => {
           applied.current = key;
@@ -69,7 +83,7 @@ export function TypedHeadline({ segments, className }: { segments: Segment[]; cl
       }
       const start = performance.now();
       const tick = (t: number) => {
-        const next = Math.min(total, Math.floor(((t - start) / TOTAL_MS) * total));
+        const next = Math.min(total, Math.floor(((t - start) / (TOTAL_MS / speed)) * total));
         setView({ segments, count: next });
         if (next < total) raf = requestAnimationFrame(tick);
         else applied.current = key;
@@ -90,14 +104,14 @@ export function TypedHeadline({ segments, className }: { segments: Segment[]; cl
     const keep = Math.min(from.count, commonPrefix(from.segments, segments));
     const eraseN = from.count - keep;
     const typeN = total - keep;
-    const erasePer = eraseN ? Math.min(ERASE_CHAR_MS, ERASE_MAX_MS / eraseN) : 0;
-    const typePer = typeN ? Math.min(TYPE_CHAR_MS, TYPE_MAX_MS / typeN) : 0;
+    const erasePer = eraseN ? Math.min(ERASE_CHAR_MS, ERASE_MAX_MS / eraseN) / speed : 0;
+    const typePer = typeN ? Math.min(TYPE_CHAR_MS, TYPE_MAX_MS / typeN) / speed : 0;
     let erasing = eraseN > 0;
     if (!erasing) setView({ segments, count: keep });
     // Прогресс копится по кадрам, а не по часам: если страница на секунду зависла, анимация не перескакивает, а идёт дальше.
     let prev = 0;
     let progress = 0; // символов уже стёрто / напечатано в текущей фазе
-    let pause = erasing ? PAUSE_MS : 0; // короткая пауза между стиранием и печатью
+    let pause = erasing ? PAUSE_MS / speed : 0; // короткая пауза между стиранием и печатью
 
     const tick = (t: number) => {
       const dt = prev ? Math.min(t - prev, MAX_FRAME_MS) : 0;
@@ -143,7 +157,7 @@ export function TypedHeadline({ segments, className }: { segments: Segment[]; cl
   const caretAt = count > 0 && !done ? shownSegments.findIndex((s, i) => count <= offsets[i] + s.text.length) : -1;
 
   return (
-    <h1 className={`typed-headline ${className ?? ""}`} data-live={live ? "" : undefined} aria-label={segments.map((s) => s.text).join("")}>
+    <Tag className={`typed-headline ${className ?? ""}`} data-live={live ? "" : undefined} aria-label={segments.map((s) => s.text).join("")}>
       <span aria-hidden>
         {shownSegments.map((s, i) => {
           const shown = Math.max(0, Math.min(s.text.length, count - offsets[i]));
@@ -160,6 +174,6 @@ export function TypedHeadline({ segments, className }: { segments: Segment[]; cl
         })}
         {done && <span className="type-caret type-caret-blink" />}
       </span>
-    </h1>
+    </Tag>
   );
 }
