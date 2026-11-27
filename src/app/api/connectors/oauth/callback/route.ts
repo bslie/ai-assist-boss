@@ -4,6 +4,7 @@ import { verifyState } from "@/core/connectors/crypto";
 import { getModule } from "@/core/connectors/modules";
 import { saveOAuthTokens } from "@/core/connectors/service";
 import { db } from "@/db/client";
+import { requestOrigin } from "@/lib/origin";
 
 const TokenSchema = z.object({
   access_token: z.string().min(1),
@@ -14,7 +15,8 @@ const TokenSchema = z.object({
 /** `GET /api/connectors/oauth/callback` — сервис вернул код: меняем на токены, шифруем, сохраняем. */
 export async function GET(req: Request) {
   const url = new URL(req.url);
-  const back = (q: string) => NextResponse.redirect(new URL(`/connectors?${q}`, url.origin));
+  const origin = requestOrigin(req) ?? url.origin;
+  const back = (q: string) => NextResponse.redirect(new URL(`/connectors?${q}`, origin));
   if (url.searchParams.get("error")) return back(`error=${encodeURIComponent("Вход отменён или сервис отказал в доступе")}`);
 
   const payload = verifyState(url.searchParams.get("state") ?? "");
@@ -33,7 +35,7 @@ export async function GET(req: Request) {
         client_secret: process.env[m.auth.clientSecretEnv] ?? "",
         grant_type: "authorization_code",
         code,
-        redirect_uri: `${url.origin}/api/connectors/oauth/callback`,
+        redirect_uri: `${origin}/api/connectors/oauth/callback`,
       }),
       signal: AbortSignal.timeout(15_000),
     });

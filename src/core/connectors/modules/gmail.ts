@@ -10,6 +10,15 @@ export const gmail: ConnectorManifest = {
   letter: "G",
   color: "#ea4335",
   status: "ready",
+  // Один OAuth-клиент Google на всё приложение: те же ключи подходят для Календаря. Это настройка администратора, а не пользователя.
+  setup: [
+    "Откройте console.cloud.google.com и создайте проект (или выберите существующий).",
+    "«APIs & Services» → «Library»: включите Gmail API (для Календаря — ещё Google Calendar API).",
+    "«OAuth consent screen» (Google Auth Platform): тип External, режим Testing. В «Test users» добавьте адреса, чьи ящики будете подключать.",
+    "«Data access»: добавьте права gmail.modify и gmail.send (для Календаря — calendar.events).",
+    "«Clients» → «Create client» → Web application. В «Authorized redirect URIs» вставьте адрес, показанный ниже.",
+    "Скопируйте Client ID и Client secret в GOOGLE_CLIENT_ID и GOOGLE_CLIENT_SECRET на сервере и перезапустите приложение.",
+  ],
   auth: {
     kind: "oauth",
     authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",

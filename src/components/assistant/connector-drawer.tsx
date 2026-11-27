@@ -156,6 +156,21 @@ function Body({ item, leaderId, api, onClose, onChanged }: Props & { item: Catal
         )}
 
         {/* Вход и доступы */}
+        {item.auth.kind === "oauth" && item.state === "needs_setup" && item.setup.length > 0 && (
+          <section className="flex flex-col gap-3 rounded-2xl border border-line bg-ink px-4 py-3.5">
+            <h3 className="text-[13px] font-medium text-soft">Как настроить вход (один раз, администратору)</h3>
+            <ol className="flex list-decimal flex-col gap-1.5 pl-5 text-[13px] text-dim">
+              {item.setup.map((s) => (
+                <li key={s}>{s}</li>
+              ))}
+            </ol>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-dim">Redirect URI для этого адреса приложения:</span>
+              <code className="rounded-lg bg-sunken px-3 py-2 text-[13px] text-soft [overflow-wrap:anywhere]">{`${window.location.origin}/api/connectors/oauth/callback`}</code>
+            </div>
+          </section>
+        )}
+
         {item.auth.kind === "oauth" && (
           <section className="flex flex-col gap-3">
             <h3 className="text-xs font-medium uppercase tracking-[0.08em] text-dim">Вход</h3>
