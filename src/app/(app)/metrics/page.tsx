@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { Suspense } from "react";
 import { getToday } from "@/core/dashboard";
 import { REPORT_PATH, type InboxEvalReport } from "@/core/eval/inbox";
+import { pricingFromEnv } from "@/core/llm";
 import { getCostReport, getRoiReport } from "@/core/usage";
 import { db } from "@/db/client";
 import { getCurrentLeader } from "@/lib/current-leader";
@@ -44,6 +45,8 @@ async function Metrics() {
   const [today, cost, roi] = await Promise.all([getToday(db, leader.id), getCostReport(db, leader.id), getRoiReport(db, leader.id)]);
   const m = today.metrics;
   const ev = loadEval();
+  // Тариф модели не задан: токены считаются, а «0 ₽» читалось бы как «бесплатно». Тогда показываем прочерк и причину.
+  const priced = pricingFromEnv() !== undefined || cost.totalRub > 0;
 
   return (
     <>
@@ -57,14 +60,18 @@ async function Metrics() {
           <Stat label="Задач с первого раза" value={`${m.firstTimeRightPct}%`} note="Без возвратов и переносов." />
           <Stat label="Время до протокола" value={m.avgProtocolMinutes === null ? "—" : `${m.avgProtocolMinutes} мин`} note="От конца встречи до готового протокола." />
           <Stat label="Выучено правил из правок" value={String(m.learnedRules)} />
-          <Stat label="Стоимость запроса" value={m.cost.perRequestRub === null ? "—" : rub(m.cost.perRequestRub)} note={`Всего потрачено ${rub(m.cost.totalRub)}.`} />
+          <Stat
+            label="Стоимость запроса"
+            value={!priced || m.cost.perRequestRub === null ? "—" : rub(m.cost.perRequestRub)}
+            note={priced ? `Всего потрачено ${rub(m.cost.totalRub)}.` : "Тариф модели пока не задан: токены считаются, рубли появятся после настройки."}
+          />
         </div>
       </section>
 
       <section aria-labelledby="roi" className="flex flex-col gap-4">
         <h2 id="roi" className="font-serif text-2xl font-medium">Окупаемость за {roi.periodDays} дней</h2>
         <div className="grid gap-3 sm:grid-cols-2">
-          <Stat label="Потрачено на ИИ" value={rub(roi.spentRub)} note={`Платных обращений: ${roi.paidCalls}.`} />
+          <Stat label="Потрачено на ИИ" value={priced ? rub(roi.spentRub) : "—"} note={`Платных обращений: ${roi.paidCalls}.${priced ? "" : " Тариф модели пока не задан."}`} />
           <Stat
             label="Стоит освобождённое время"
             value={roi.savedRub === null ? `${Math.round(roi.savedMinutes)} мин` : rub(roi.savedRub)}
@@ -117,8 +124,8 @@ async function Metrics() {
                     <td className="py-2 pr-4">{r.calls}</td>
                     <td className="py-2 pr-4">{r.cachedCalls}</td>
                     <td className="py-2 pr-4">{(r.promptTokens + r.completionTokens).toLocaleString("ru-RU")}</td>
-                    <td className="py-2 pr-4">{rub(r.costRub)}</td>
-                    <td className="py-2">{r.avgCostRub === null ? "—" : rub(r.avgCostRub)}</td>
+                    <td className="py-2 pr-4">{priced ? rub(r.costRub) : "—"}</td>
+                    <td className="py-2">{!priced || r.avgCostRub === null ? "—" : rub(r.avgCostRub)}</td>
                   </tr>
                 ))}
               </tbody>
