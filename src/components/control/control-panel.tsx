@@ -226,6 +226,24 @@ function Users({ viewerLogin }: { viewerLogin: string }) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
+  // Сброс до «первого входа»: два шага, потому что подключения и история разбора удаляются без возврата.
+  const [resetFor, setResetFor] = useState<string | null>(null);
+  const [resetting, setResetting] = useState(false);
+
+  async function resetUser(u: AppUserRow) {
+    setResetting(true);
+    setError(null);
+    setNotice(null);
+    const r = await api<{ report: { connectors: number; emails: number; decisions: number; memories: number; rules: number } }>(
+      `/api/control/users/${encodeURIComponent(u.id)}/reset`,
+      { method: "POST", body: JSON.stringify({ confirm: true }) },
+    );
+    setResetting(false);
+    setResetFor(null);
+    if (!r.ok) return setError(r.error);
+    const x = r.data.report;
+    setNotice(`«${u.displayName}» вернулся к первому входу: подключений ${x.connectors}, писем ${x.emails}, карточек ${x.decisions}, выученных правил ${x.memories + x.rules}`);
+  }
 
   const load = useCallback(async () => {
     const r = await api<{ users: AppUserRow[] }>("/api/control/users");
@@ -326,6 +344,7 @@ function Users({ viewerLogin }: { viewerLogin: string }) {
                   <th className="px-5 py-2.5 font-normal">Роль</th>
                   <th className="px-5 py-2.5 font-normal">Руководитель</th>
                   <th className="px-5 py-2.5 font-normal">Способы входа</th>
+                  <th className="px-5 py-2.5 font-normal">Настройки</th>
                 </tr>
               </thead>
               <tbody>
@@ -362,6 +381,23 @@ function Users({ viewerLogin }: { viewerLogin: string }) {
                           </span>
                         ) : null}
                       </div>
+                    </td>
+                    <td className="px-5 py-3">
+                      {!u.leaderName ? (
+                        <span className="text-dim">—</span>
+                      ) : resetFor === u.id ? (
+                        <div className="flex max-w-xs flex-col gap-2 text-xs text-soft">
+                          <span>
+                            Вернуть «{u.leaderName}» к первому входу? Будут удалены подключения (почта, календарь, Telegram Business), письма и карточки, выученные правила и доверие по областям; включится режим обучения. Профиль, сотрудники, поручения и встречи останутся. Это не отменить.
+                          </span>
+                          <div className="flex gap-2">
+                            <Button variant="destructive" className="h-8 px-3" disabled={resetting} onClick={() => resetUser(u)}>Да, сбросить</Button>
+                            <Button variant="outline" className="h-8 px-3" disabled={resetting} onClick={() => setResetFor(null)}>Отмена</Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <Button variant="outline" className="h-8 px-3" onClick={() => setResetFor(u.id)}>Сбросить настройки</Button>
+                      )}
                     </td>
                   </tr>
                 ))}
