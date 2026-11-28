@@ -3,6 +3,7 @@
  * Здесь только модули, у которых нет своей проверки (почта проверяется в mail/factory).
  */
 import { z } from "zod";
+import { validateReplyDelay } from "../telegram/reply-delay";
 
 export const RECALL_REGIONS = ["us-east-1", "us-west-2", "eu-central-1", "ap-northeast-1"] as const;
 
@@ -19,6 +20,12 @@ const RecallValues = z.object({
 
 /** Бросает Error с понятным текстом, если доступы не подходят. */
 export async function verifyConnectorCredentials(moduleId: string, values: Record<string, string>): Promise<void> {
+  if (moduleId === "BUILTIN_TELEGRAM_BUSINESS") {
+    if (!process.env.TELEGRAM_BOT_TOKEN) throw new Error("На сервере не задан TELEGRAM_BOT_TOKEN: без него бот не запустится.");
+    const bad = validateReplyDelay(values.replyDelayMinutes);
+    if (bad) throw new Error(bad);
+    return;
+  }
   if (moduleId !== "BUILTIN_RECALL") return;
   const parsed = RecallValues.safeParse(values);
   if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "Проверьте поля");

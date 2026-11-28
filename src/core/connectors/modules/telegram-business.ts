@@ -10,6 +10,11 @@ export const telegramBusiness: ConnectorManifest = {
   vendor: "Telegram",
   category: "Мессенджеры",
   description: "Помощник отвечает в ваших личных чатах Telegram. Сообщения приходят в диалог от вашего аккаунта, с подписью помощника.",
+  setup: [
+    "Сначала запустите нашего бота в Telegram командой /start: так он узнает ваш чат",
+    "Сохраните это подключение, затем в Telegram откройте Настройки → Telegram Business → Чат-боты и выберите нашего бота (нужен Telegram Premium)",
+    "«Задержка ответа ИИ» по умолчанию 30 минут: пока вы сами отвечаете сотруднику, ИИ молчит",
+  ],
   sees: [
     "После подключения здесь: в Telegram откройте Настройки → Telegram Business → Чат-боты и выберите нашего бота. Нужен Telegram Premium, и вы уже должны были запустить бота командой /start",
     "По умолчанию читаем только сообщения сотрудников, которых вы привязали к боту. Чтобы читать всех, включите это в настройках ниже. Группы и каналы не читаются никогда",
@@ -19,7 +24,18 @@ export const telegramBusiness: ConnectorManifest = {
   letter: "T",
   color: "#2a8fd1",
   status: "ready",
-  auth: { kind: "none", envRequired: ["TELEGRAM_BOT_TOKEN"] },
+  auth: {
+    kind: "credentials",
+    fields: [
+      {
+        key: "replyDelayMinutes",
+        label: "Задержка ответа ИИ, минут",
+        secret: false,
+        initial: "30",
+        help: "Сколько ждать, прежде чем разобрать сообщение сотрудника. Если за это время вы ответили в чате сами, ИИ не вмешивается: ни карточки, ни ответа. 0 — разбирать сразу.",
+      },
+    ],
+  },
   tools: [
     {
       name: "telegram_business.read_messages",

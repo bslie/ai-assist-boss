@@ -21,6 +21,8 @@ import { dueAvatarMeetings, launchAvatarBot } from "@/core/meetings/recall";
 import { collectRecallProtocol, dueTranscriptMeetings } from "@/core/meetings/transcript-poll";
 import { dueDossiers, sendDossier } from "@/core/meetings/dossier";
 import { relayEvent } from "@/core/telegram/relay";
+import { processDueBusinessMessages } from "@/core/telegram/business";
+import { createDraftGenerator } from "@/core/learning/draft";
 import { runActivity } from "@/core/worker-activity";
 import type { StateStore } from "@/core/telegram/types";
 import { db } from "@/db/client";
@@ -197,6 +199,22 @@ async function main() {
   void runTranscriptCheck();
   const transcriptTimer = setInterval(runTranscriptCheck, 60_000);
 
+  // «Задержка ответа ИИ»: сообщения сотрудников в личке руководителя ждут, не ответит ли он сам. Время демо-часов.
+  let draining = false;
+  const runBusinessQueue = async () => {
+    if (draining) return;
+    draining = true;
+    try {
+      const n = await processDueBusinessMessages({ db, messenger, llm, draft: llm ? createDraftGenerator(db, llm) : undefined });
+      if (n > 0) log(`личные сообщения: разобрано после задержки — ${n}`);
+    } catch (e) {
+      log("разбор отложенных сообщений не удался:", (e as Error).message);
+    } finally {
+      draining = false;
+    }
+  };
+  const businessTimer = setInterval(runBusinessQueue, 60_000);
+
   if (bot) {
     void bot.start({ onStart: (me) => log(`бот @${me.username} запущен`) });
   }
@@ -208,6 +226,7 @@ async function main() {
     clearInterval(calendarTimer);
     clearInterval(avatarTimer);
     clearInterval(transcriptTimer);
+    clearInterval(businessTimer);
     await bot?.stop();
     await unsubscribe();
     await worker.close();

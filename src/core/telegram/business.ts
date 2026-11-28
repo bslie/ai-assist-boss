@@ -14,6 +14,8 @@ import { ingestEmails, type IngestOptions } from "../email-triage/ingest";
 import { publishEvent } from "../events";
 import type { LlmClient } from "../llm";
 import { getToolPermission, logVerdict } from "../policy-gate";
+import { decryptJson } from "../connectors/crypto";
+import { parseReplyDelay } from "./reply-delay";
 import { esc, type Messenger } from "./types";
 
 export const BUSINESS_CONNECTOR = "BUILTIN_TELEGRAM_BUSINESS";
@@ -68,8 +70,88 @@ export async function handleBusinessConnection(db: PrismaClient, u: BusinessConn
   return { status: "queued", decisionId: null };
 }
 
-/** Сообщение сотрудника в личном чате руководителя → карточка решения. Ничего никуда не отправляет. */
-export async function handleBusinessMessage(deps: BusinessDeps, m: BusinessIncoming): Promise<BusinessResult> {
+/** Сколько минут ждать перед разбором: настройка «Задержка ответа ИИ» подключения Telegram Business. */
+export async function getReplyDelayMinutes(db: PrismaClient, leaderId: string): Promise<number> {
+  const row = await db.connector.findFirst({ where: { leaderId, type: BUSINESS_CONNECTOR, isActive: true }, select: { encryptedConfig: true } });
+  const stored = row ? decryptJson<{ values?: Record<string, string> }>(row.encryptedConfig) : null;
+  return parseReplyDelay(stored?.values?.replyDelayMinutes);
+}
+
+/** Можно ли вообще читать сообщение из этого чата: те же условия, что и при разборе. Нужно до записи в очередь, чтобы не хранить чужие тексты. */
+async function readableReason(db: PrismaClient, leaderId: string, chatId: string): Promise<string | null> {
+  const perm = await getToolPermission(db, leaderId, BUSINESS_CONNECTOR, BUSINESS_READ_TOOL);
+  if (perm === null || perm === "DENY") return "чтение сообщений не включено";
+  const binding = await db.telegramBinding.findFirst({ where: { chatId, leaderId, role: "EMPLOYEE", employeeId: { not: null } }, select: { id: true } });
+  if (binding) return null;
+  const all = await getToolPermission(db, leaderId, BUSINESS_CONNECTOR, BUSINESS_READ_ALL_TOOL);
+  return all === null || all === "DENY" ? "отправитель не привязан как сотрудник" : null;
+}
+
+/**
+ * Вход для каждого сообщения личного чата. Руководитель пишет сам, и ИИ молчит: ждущие сообщения этого чата снимаются.
+ * Пишет сотрудник: сообщение ждёт «Задержку ответа ИИ». Если руководитель за это время ответил, карточки не будет;
+ * иначе сообщение разберёт `processDueBusinessMessages`. Задержка 0 — разбор сразу.
+ */
+export async function handleBusinessMessage(deps: BusinessDeps & { /** Подмена настройки (тесты). */ delayMinutes?: number }, m: BusinessIncoming): Promise<BusinessResult> {
+  const { db } = deps;
+  const conn = await db.businessConnection.findUnique({ where: { connectionId: m.connectionId } });
+  if (!conn || !conn.isEnabled) return { status: "skipped", reason: "подключение неизвестно или выключено" };
+  if (m.fromIsBot) return { status: "skipped", reason: "сообщение своё" };
+
+  if (m.fromUserId === conn.userId) {
+    const r = await db.businessPending.updateMany({ where: { connectionId: m.connectionId, chatId: m.chatId, status: "PENDING" }, data: { status: "ANSWERED", text: "" } });
+    return { status: "skipped", reason: r.count > 0 ? `руководитель ответил сам, снято сообщений: ${r.count}` : "сообщение своё" };
+  }
+
+  const text = m.text.trim();
+  if (!text) return { status: "skipped", reason: "нет текста" };
+  const delay = deps.delayMinutes ?? (await getReplyDelayMinutes(db, conn.leaderId));
+  if (delay <= 0) return processBusinessMessage(deps, m);
+
+  const why = await readableReason(db, conn.leaderId, m.chatId);
+  if (why) return { status: "skipped", reason: why };
+  const now = clock.now();
+  try {
+    await db.businessPending.create({
+      data: {
+        leaderId: conn.leaderId,
+        connectionId: m.connectionId,
+        chatId: m.chatId,
+        messageId: m.messageId,
+        fromUserId: m.fromUserId,
+        fromName: m.fromName ?? null,
+        text,
+        receivedAt: now,
+        dueAt: new Date(now.getTime() + delay * 60_000),
+      },
+    });
+  } catch {
+    return { status: "skipped", reason: "уже в очереди" };
+  }
+  return { status: "queued", decisionId: null };
+}
+
+/** Сообщения, у которых вышла задержка, а руководитель не ответил: разбираем как обычные. Вызывается воркером раз в минуту. */
+export async function processDueBusinessMessages(deps: BusinessDeps): Promise<number> {
+  const { db } = deps;
+  const due = await db.businessPending.findMany({ where: { status: "PENDING", dueAt: { lte: clock.now() } }, orderBy: { dueAt: "asc" }, take: 50 });
+  let n = 0;
+  for (const p of due) {
+    const claimed = await db.businessPending.updateMany({ where: { id: p.id, status: "PENDING" }, data: { status: "PROCESSING" } });
+    if (claimed.count === 0) continue;
+    try {
+      await processBusinessMessage(deps, { connectionId: p.connectionId, chatId: p.chatId, messageId: p.messageId, fromUserId: p.fromUserId, fromIsBot: false, fromName: p.fromName ?? undefined, text: p.text });
+      await db.businessPending.update({ where: { id: p.id }, data: { status: "DONE", text: "" } });
+      n++;
+    } catch {
+      await db.businessPending.update({ where: { id: p.id }, data: { status: "PENDING" } }).catch(() => null);
+    }
+  }
+  return n;
+}
+
+/** Разбор сообщения сотрудника → карточка решения. Ничего никуда не отправляет. */
+export async function processBusinessMessage(deps: BusinessDeps, m: BusinessIncoming): Promise<BusinessResult> {
   const { db } = deps;
   const conn = await db.businessConnection.findUnique({ where: { connectionId: m.connectionId } });
   if (!conn || !conn.isEnabled) return { status: "skipped", reason: "подключение неизвестно или выключено" };

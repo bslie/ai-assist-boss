@@ -29,7 +29,7 @@ describe.skipIf(!dbUp)("Telegram Business: чаты руководителя", (
       business.push({ connectionId, chatId, text, replyTo });
     },
   };
-  const deps = () => ({ db, messenger });
+  const deps = () => ({ db, messenger, delayMinutes: 0 });
   const msg = (over: Partial<Parameters<typeof handleBusinessMessage>[1]> = {}) => ({
     connectionId,
     chatId: empChat,

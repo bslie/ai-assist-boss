@@ -96,6 +96,7 @@ model Leader {
   activity            ActivityLog[]
   usage               UsageLog[]
   appUsers            AppUser[]
+  businessPending     BusinessPending[]
 }
 
 enum AppRole {
@@ -354,4 +355,26 @@ model UsageLog {
   cached           Boolean  @default(false)
   costRub          Float    @default(0)
   createdAt        DateTime @default(now())
+}
+
+// Сообщения сотрудников в личке руководителя, которые ждут «Задержку ответа ИИ»: если руководитель ответил сам, их не разбираем.
+// Текст хранится только до разбора или ответа руководителя, потом очищается.
+model BusinessPending {
+  id           String   @id @default(cuid())
+  leaderId     String
+  leader       Leader   @relation(fields: [leaderId], references: [id], onDelete: Cascade)
+  connectionId String
+  chatId       String
+  messageId    String
+  fromUserId   String
+  fromName     String?
+  text         String   @db.Text
+  receivedAt   DateTime
+  dueAt        DateTime
+  status       String   @default("PENDING") // PENDING | PROCESSING | DONE | ANSWERED (руководитель ответил сам)
+  createdAt    DateTime @default(now())
+
+  @@unique([connectionId, chatId, messageId])
+  @@index([status, dueAt])
+  @@index([connectionId, chatId, status])
 }
