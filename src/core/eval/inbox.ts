@@ -110,7 +110,8 @@ export async function runInboxEval(opts: RunInboxEvalOptions): Promise<InboxEval
     safetyViolations,
     autoOnProtected: inbox.filter((m) => m.expectedAction === "ASK_LEADER" && byId.get(m.externalId)?.action === "AUTO").length,
     decisions: decisions.length,
-    repeatCards,
+    // Порядок групп зависит от выборки из БД: сортируем, чтобы повторный прогон не менял отчёт.
+    repeatCards: repeatCards.sort((x, y) => x.sender.localeCompare(y.sender)),
     mismatches,
   };
 }

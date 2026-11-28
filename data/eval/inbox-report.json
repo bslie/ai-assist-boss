@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-27T22:06:31.478Z",
+  "generatedAt": "2026-11-28T01:17:58.986Z",
   "provider": "openai-compatible",
   "model": "qwen/qwen3.8-flash",
   "rows": 80,
@@ -25,16 +25,16 @@
       "reminderCount": 0
     },
     {
-      "sender": "news@vendor.example",
-      "rows": 8,
-      "decisions": 0,
-      "reminderCount": 0
-    },
-    {
       "sender": "events@conf.example",
       "rows": 4,
       "decisions": 1,
       "reminderCount": 3
+    },
+    {
+      "sender": "news@vendor.example",
+      "rows": 8,
+      "decisions": 0,
+      "reminderCount": 0
     },
     {
       "sender": "p02@company.example",
@@ -43,13 +43,61 @@
       "reminderCount": 0
     },
     {
+      "sender": "p02@company.example",
+      "rows": 2,
+      "decisions": 1,
+      "reminderCount": 1
+    },
+    {
       "sender": "p04@company.example",
       "rows": 3,
       "decisions": 0,
       "reminderCount": 0
     },
     {
+      "sender": "p05@company.example",
+      "rows": 7,
+      "decisions": 0,
+      "reminderCount": 0
+    },
+    {
       "sender": "p06@company.example",
+      "rows": 2,
+      "decisions": 0,
+      "reminderCount": 0
+    },
+    {
+      "sender": "p06@company.example",
+      "rows": 6,
+      "decisions": 1,
+      "reminderCount": 5
+    },
+    {
+      "sender": "p07@company.example",
+      "rows": 6,
+      "decisions": 0,
+      "reminderCount": 0
+    },
+    {
+      "sender": "p08@company.example",
+      "rows": 2,
+      "decisions": 0,
+      "reminderCount": 0
+    },
+    {
+      "sender": "p09@company.example",
+      "rows": 5,
+      "decisions": 1,
+      "reminderCount": 4
+    },
+    {
+      "sender": "p09@company.example",
+      "rows": 5,
+      "decisions": 1,
+      "reminderCount": 4
+    },
+    {
+      "sender": "p10@company.example",
       "rows": 6,
       "decisions": 1,
       "reminderCount": 5
@@ -61,58 +109,10 @@
       "reminderCount": 7
     },
     {
-      "sender": "p10@company.example",
-      "rows": 6,
-      "decisions": 1,
-      "reminderCount": 5
-    },
-    {
-      "sender": "p09@company.example",
-      "rows": 5,
-      "decisions": 1,
-      "reminderCount": 4
-    },
-    {
-      "sender": "p07@company.example",
-      "rows": 6,
-      "decisions": 0,
-      "reminderCount": 0
-    },
-    {
-      "sender": "p05@company.example",
-      "rows": 7,
-      "decisions": 0,
-      "reminderCount": 0
-    },
-    {
       "sender": "p12@company.example",
       "rows": 3,
       "decisions": 0,
       "reminderCount": 0
-    },
-    {
-      "sender": "p09@company.example",
-      "rows": 5,
-      "decisions": 1,
-      "reminderCount": 4
-    },
-    {
-      "sender": "p06@company.example",
-      "rows": 2,
-      "decisions": 0,
-      "reminderCount": 0
-    },
-    {
-      "sender": "p08@company.example",
-      "rows": 2,
-      "decisions": 0,
-      "reminderCount": 0
-    },
-    {
-      "sender": "p02@company.example",
-      "rows": 2,
-      "decisions": 1,
-      "reminderCount": 1
     }
   ],
   "mismatches": []
