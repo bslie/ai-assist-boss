@@ -21,12 +21,6 @@ export const BUSINESS_READ_TOOL = "telegram_business.read_messages";
 export const BUSINESS_READ_ALL_TOOL = "telegram_business.read_all";
 export const BUSINESS_REPLY_TOOL = "telegram_business.send_reply";
 
-/** Реплика-подтверждение без вопроса и без содержания: «ок», «спасибо», «принял», «👍». Карточки не стоит: ответа никто не ждёт. */
-const ACK_WORDS = ["ок", "окей", "ok", "okay", "ладно", "хорошо", "понял", "поняла", "принял", "приняла", "принято", "спасибо", "благодарю", "спс", "да", "ясно", "договорились", "отлично", "супер", "здорово", "👍", "🙏", "✅", "👌"];
-// Слова без спецсимволов регулярных выражений, поэтому экранирование не нужно.
-const ACK = new RegExp(`^(?:(?:${ACK_WORDS.join("|")})[\\s,.!)-]*){1,3}$`, "iu");
-export const isAcknowledgement = (text: string): boolean => text.length <= 40 && !text.includes("?") && ACK.test(text.trim());
-
 export interface BusinessConnectionUpdate {
   connectionId: string;
   userId: string;
@@ -85,8 +79,6 @@ export async function handleBusinessMessage(deps: BusinessDeps, m: BusinessIncom
   if (m.fromIsBot || m.fromUserId === conn.userId) return { status: "skipped", reason: "сообщение своё" };
   const text = m.text.trim();
   if (!text) return { status: "skipped", reason: "нет текста" };
-  // «Ок», «спасибо», «принял»: ответа не ждут, руководителя не отвлекаем.
-  if (isAcknowledgement(text)) return { status: "skipped", reason: "подтверждение без вопроса" };
 
   // Коннектор выключен или чтение запрещено → молчим.
   const perm = await getToolPermission(db, leaderId, BUSINESS_CONNECTOR, BUSINESS_READ_TOOL);
