@@ -1,11 +1,14 @@
 import { Suspense } from "react";
+import { ContactsPolicy } from "@/components/assistant/contacts-policy";
 import { LearnedRules } from "@/components/assistant/learned-rules";
 import { RuleInput } from "@/components/assistant/rule-input";
 import { BudgetLimit, ProtectedBlocks, RuleList, type RuleItem } from "@/components/assistant/rules-panel";
 import { readyClock } from "@/core/clock";
+import { getLearningStatus } from "@/core/learning/mode";
 import { listLearned } from "@/core/memory";
 import { isLockedCategory } from "@/core/policy-gate";
 import { listRules } from "@/core/rules";
+import { TASK_ASSIGN_SCOPE } from "@/core/tasks/dispatch";
 import { db } from "@/db/client";
 import { getCurrentLeader } from "@/lib/current-leader";
 
@@ -21,7 +24,17 @@ async function Rules() {
   if (!leader) return null;
   const clk = await readyClock();
   const now = clk.now();
-  const [{ settings, rules }, learned] = await Promise.all([listRules(db, leader.id), listLearned(db, leader.id)]);
+  const [{ settings, rules }, learned, contacts, learning, guard] = await Promise.all([
+    listRules(db, leader.id),
+    listLearned(db, leader.id),
+    db.employee.findMany({ where: { leaderId: leader.id }, select: { relationType: true, _count: { select: { bindings: true } } } }),
+    getLearningStatus(db, leader.id),
+    db.routine.findFirst({ where: { leaderId: leader.id, code: "DEADLINE_GUARD" }, select: { isActive: true } }),
+  ]);
+  const group = (type: string) => {
+    const g = contacts.filter((c) => c.relationType === type);
+    return { count: g.length, telegram: g.filter((c) => c._count.bindings > 0).length };
+  };
 
   const items: RuleItem[] = rules
     // Просроченные «на неделю» уже не действуют: не показываем их как действующие.
@@ -78,6 +91,17 @@ async function Rules() {
           </ul>
         )}
       </section>
+
+      <ContactsPolicy
+        leaderName={leader.name}
+        subordinates={group("SUBORDINATE")}
+        managers={group("MANAGER")}
+        peers={group("PEER")}
+        assignAlone={!learning.learningMode || learning.trusted.some((t) => t.scope === TASK_ASSIGN_SCOPE)}
+        guardActive={guard?.isActive ?? false}
+        quietStart={leader.quietHoursStart}
+        quietEnd={leader.quietHoursEnd}
+      />
 
       <ProtectedBlocks leaderId={leader.id} blocks={settings.protectedBlocks} />
 
