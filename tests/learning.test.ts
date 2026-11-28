@@ -106,10 +106,8 @@ describe("extractRuleFromEdit (без БД)", () => {
 });
 
 describe("ensureSignature", () => {
-  it("добавляет подпись помощника, не дублирует", () => {
-    expect(ensureSignature("Текст", "Иван Петров")).toBe("Текст\n\nИИ-помощник Иван Петров");
-    const signed = "Текст\n\nИИ-помощник Иван Петров";
-    expect(ensureSignature(signed, "Иван Петров")).toBe(signed);
+  it("подпись не добавляет, только чистит пробелы", () => {
+    expect(ensureSignature("  Текст ", "Иван Петров")).toBe("Текст");
   });
 });
 
@@ -316,7 +314,7 @@ describe.skipIf(!dbUp)("обучение на правках (Postgres)", () => 
       expect(system).not.toContain("Правило встреч.");
       expect(system).not.toContain("Ждёт подтверждения.");
       expect(system).not.toContain("Чужое правило.");
-      expect(String(draft).endsWith(`ИИ-помощник ${leaderName}`)).toBe(true);
+      expect(String(draft).includes("ИИ-помощник")).toBe(false);
       // выученные правила не отменяют запрет выдумывать даты, суммы и факты
       expect(system).toContain("Не придумывай даты, суммы, имена и факты");
       expect(system.indexOf("Не придумывай даты")).toBeLessThan(system.indexOf("Пиши коротко."));

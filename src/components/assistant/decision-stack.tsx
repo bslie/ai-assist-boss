@@ -167,11 +167,11 @@ export function DecisionStack({ leaderId, decisions, delegates, firstRun = false
           <div className="rounded-[12px] border border-coral/40 bg-[#2a1a18] px-3.5 py-2.5 text-[13px] text-soft">{cur.repeatNote}</div>
         )}
         <h2 className="font-serif text-[23px] font-medium leading-tight tracking-tight sm:text-[28px]">{cur.title}</h2>
-        <p className="text-soft">{cur.summary}</p>
+        <p className="whitespace-pre-line text-soft">{cur.summary}</p>
 
         {cur.draft && (
           <blockquote className="rounded-[14px] border border-line bg-ink px-[18px] py-4">
-            <div className="mb-2 text-xs text-dim">Что я предлагаю</div>
+            <div className="mb-2 text-xs text-dim">{cur.declineDraft ? "Ответ, если согласны" : "Что я предлагаю"}</div>
             <DraftText text={cur.draft} />
           </blockquote>
         )}
@@ -241,6 +241,14 @@ export function DecisionStack({ leaderId, decisions, delegates, firstRun = false
               <>
                 <Button className="col-span-3 h-12 rounded-full px-6 font-semibold" disabled={busy} onClick={() => resolve({ action: "APPROVE", protocolRecipients: "ALL" })}>Утвердить и разослать всем</Button>
                 <Button variant="outline" className="col-span-3 h-12 rounded-full px-5" disabled={busy} onClick={() => resolve({ action: "APPROVE", protocolRecipients: "IN_PROTOCOL" })}>Только исполнителям</Button>
+              </>
+            ) : cur.declineDraft ? (
+              <>
+                <Button className="col-span-3 h-12 rounded-full px-6 font-semibold sm:col-span-1" disabled={busy || gaps.length > 0} onClick={() => resolve({ action: "APPROVE" })}>Согласен</Button>
+                <Button variant="outline" className="col-span-3 h-12 rounded-full px-6 sm:col-span-1" disabled={busy || findPlaceholders(cur.declineDraft).length > 0} onClick={() => resolve({ action: "EDITED_APPROVED", editedText: cur.declineDraft ?? "" })}>Отказать</Button>
+                {gaps.length > 0 && (
+                  <Button variant="ghost" className="col-span-3 h-12 rounded-full px-3 text-dim sm:col-span-1 sm:px-5" disabled={busy} onClick={openEditor}>Вписать {gaps[0]}</Button>
+                )}
               </>
             ) : gaps.length > 0 ? (
               <Button className="col-span-3 h-12 rounded-full px-6 font-semibold" disabled={busy} onClick={openEditor}>Вписать {gaps[0]}</Button>

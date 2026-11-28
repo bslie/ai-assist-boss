@@ -52,6 +52,8 @@ export interface DecisionCard {
   title: string;
   summary: string;
   draft: string | null;
+  /** Готовый ответ-отказ: если есть, письмо требует решения «согласен / отказать». */
+  declineDraft: string | null;
   recommendation: string;
   reasons: string[];
   reminderCount: number;
@@ -125,6 +127,7 @@ export async function buildDecisionCards(db: PrismaClient, leaderId: string, pen
       title: d.title,
       summary: d.contextSummary,
       draft: d.draftText,
+      declineDraft: ((d.proposedPayload as { declineText?: unknown } | null)?.declineText as string | undefined) ?? null,
       recommendation: d.aiRecommendation,
       reasons: humanizeReasons(d.gateReasons),
       reminderCount: d.reminderCount,

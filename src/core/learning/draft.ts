@@ -1,6 +1,6 @@
 /**
  * Черновик ответа руководителю на письмо (SPEC 4.2.3): стиль из профиля + активная Memory.
- * Черновик пишет ИИ-помощник от своего имени и подписывается им (этика, инвариант 7).
+ * Черновик пишет ИИ-помощник как руководитель; в первой фразе он называет себя помощником, подписи нет.
  * Решение «отправлять ли» остаётся за руководителем и Policy Gate.
  */
 import { createHash } from "node:crypto";
@@ -10,7 +10,13 @@ import type { IngestOptions } from "../email-triage/ingest";
 import { threadKey } from "../email-triage/threads";
 import type { LlmClient } from "../llm";
 
-export const DraftSchema = z.object({ text: z.string().min(1).max(4000) });
+export const DraftSchema = z.object({
+  text: z.string().min(1).max(4000),
+  /** В письме просят согласовать или отказать: руководителю нужны две кнопки. */
+  needsVerdict: z.boolean().optional(),
+  /** Готовый ответ-отказ; нужен только вместе с needsVerdict. `text` тогда ответ-согласие. */
+  declineText: z.string().min(1).max(4000).optional(),
+});
 
 /** Активные правила руководителя для области (GLOBAL всегда). Только его, только включённые. */
 export async function activeMemoryRules(db: PrismaClient, leaderId: string, scope: "EMAIL" | "MEETING" | "TASK" = "EMAIL"): Promise<string[]> {
@@ -22,13 +28,9 @@ export async function activeMemoryRules(db: PrismaClient, leaderId: string, scop
   return rows.map((r) => r.ruleText);
 }
 
-export function ensureSignature(text: string, leaderName: string): string {
-  const sig = `ИИ-помощник ${leaderName}`;
-  // Модель иногда ставит подпись и первой строкой: оставляем только конечную, чтобы не было дубля.
-  const lines = text.trim().split("\n");
-  while (lines.length > 1 && lines[0]!.trim() === sig) lines.shift();
-  const body = lines.join("\n").trim();
-  return body.includes(sig) ? body : `${body}\n\n${sig}`;
+/** Подписи ИИ-помощника в письмах больше нет: бот отвечает как руководитель (решение владельца продукта). Функция оставлена для вызовов и только чистит текст. */
+export function ensureSignature(text: string, _leaderName: string): string {
+  return text.trim();
 }
 
 const memoryHash = (rules: readonly string[]) => createHash("sha256").update(rules.join("\n")).digest("hex").slice(0, 12);
@@ -41,8 +43,9 @@ export function createDraftGenerator(db: PrismaClient, llm: LlmClient): NonNulla
 
     const system = [
       `Ты ИИ-помощник руководителя ${leader.name}. Напиши черновик ответа на письмо от своего имени:`,
-      `начни с «Здравствуйте!» и представься в первой фразе как «ИИ-помощник ${leader.name}», подпись поставь один раз в конце; не выдавай себя за руководителя.`,
+      `начни с «Здравствуйте!» и представься в первой фразе как «ИИ-помощник ${leader.name}»; подписи в конце не нужно, не выдавай себя за руководителя.`,
       "Пиши готовый ответ по существу, как ответил бы руководитель: сам предложи решение, которое следует из письма и правил ниже (например, просят согласовать и условия выполнены: сообщи, что согласовано). Руководитель только утвердит или поправит текст.",
+      "Если в письме просят согласовать, утвердить или отказать, поставь needsVerdict=true: в text напиши ответ-согласие, в declineText ответ-отказ, оба готовые к отправке. Иначе needsVerdict=false и declineText не заполняй.",
       "Никогда не пиши «передал руководителю», «решение за руководителем» и не выставляй срок ответа: руководитель читает этот текст как готовое письмо.",
       "Не придумывай даты, суммы, имена и факты, которых нет в письме или в правилах ниже. Если для ответа нужна конкретная дата или сумма, которой нет в письме, оставь «[срок]» или «[сумма]».",
       "Это сильнее любых выученных правил: правило может менять манеру письма, но не разрешает выдумывать содержание.",
@@ -62,6 +65,8 @@ export function createDraftGenerator(db: PrismaClient, llm: LlmClient): NonNulla
       cacheKey: `${threadKey(email.senderEmail, email.subject, email.body)}:${memoryHash(rules)}`,
       temperature: 0.2,
     });
-    return ensureSignature(res.text, leader.name);
+    const text = res.text.trim();
+    // Две кнопки только если модель дала оба ответа; иначе обычный черновик.
+    return res.needsVerdict && res.declineText ? { text, declineText: res.declineText.trim() } : text;
   };
 }

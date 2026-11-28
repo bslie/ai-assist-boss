@@ -41,7 +41,7 @@ export interface IngestOptions {
   /** Черновик ответа для карточки (стиль руководителя + Memory); необязателен. */
   /** Событие для SSE (decision.created, email.processed). Ошибки подписчика не ломают разбор. */
   emit?: (event: LeaderEvent) => Promise<void> | void;
-  draft?: (ctx: { leaderId: string; email: IncomingEmail; summary: string }) => Promise<string | null>;
+  draft?: (ctx: { leaderId: string; email: IncomingEmail; summary: string }) => Promise<string | { text: string; declineText?: string } | null>;
   /** Измеримый критерий готовности для поручения (SPEC 4.3.1). Ошибка модели → текст по умолчанию, поручение не теряется. */
   criteria?: (ctx: { leaderId: string; email: IncomingEmail; summary: string }) => Promise<string | null>;
 }
@@ -205,7 +205,10 @@ export async function ingestEmails(
 
     if (decision.action === "ASK_LEADER") {
       // Сбой генерации черновика не должен терять карточку: руководитель всё равно увидит письмо.
-      const draftText = (await opts.draft?.({ leaderId, email, summary: c.summary }).catch(() => null)) ?? null;
+      const drafted = (await opts.draft?.({ leaderId, email, summary: c.summary }).catch(() => null)) ?? null;
+      const draftText = typeof drafted === "string" ? drafted : (drafted?.text ?? null);
+      const declineText = typeof drafted === "object" && drafted ? (drafted.declineText ?? null) : null;
+      const basePayload: Record<string, unknown> = email.reply ?? { tool: "mail.reply", args: { to: email.senderEmail, subject: email.subject, connectorId: opts.connectorId ?? null, externalId: email.externalId ?? null, inReplyTo: email.messageId ?? null } };
       const d = await db.decision.create({
         data: {
           createdAt: clock.now(),
@@ -215,7 +218,7 @@ export async function ingestEmails(
           contextSummary: c.summary,
           gateReasons: decision.reasons,
           aiRecommendation: "Спросить руководителя",
-          proposedPayload: email.reply ?? { tool: "mail.reply", args: { to: email.senderEmail, subject: email.subject, connectorId: opts.connectorId ?? null, externalId: email.externalId ?? null, inReplyTo: email.messageId ?? null } },
+          proposedPayload: (declineText ? { ...basePayload, declineText } : basePayload) as object,
           draftText,
         },
       });
