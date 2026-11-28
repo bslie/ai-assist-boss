@@ -17,6 +17,7 @@ type Summary = {
 };
 type AppUserRow = {
   id: string;
+  leaderId: string | null;
   login: string;
   displayName: string;
   role: "ADMIN" | "LEADER";
@@ -446,9 +447,13 @@ function Users({ viewerLogin }: { viewerLogin: string }) {
             <span className="text-dim">Руководитель {form.role === "LEADER" ? "(обязательно)" : "(необязательно)"}</span>
             <select className={INPUT} required={form.role === "LEADER"} value={form.role === "LEADER" || form.leaderId !== NEW_LEADER ? form.leaderId : ""} onChange={(e) => setForm({ ...form, leaderId: e.target.value })}>
               {form.role === "LEADER" ? <option value={NEW_LEADER}>Новый руководитель (чистый кабинет)</option> : <option value="">—</option>}
-              {leaders.map((l) => (
-                <option key={l.id} value={l.id}>{l.name}</option>
-              ))}
+              {leaders.map((l) => {
+                // Один кабинет — одна учётная запись руководителя: занятых показываем, но выбрать нельзя.
+                const owner = form.role === "LEADER" ? (users ?? []).find((u) => u.role === "LEADER" && u.leaderId === l.id) : undefined;
+                return (
+                  <option key={l.id} value={l.id} disabled={Boolean(owner)}>{l.name}{owner ? ` (занят: ${owner.login})` : ""}</option>
+                );
+              })}
             </select>
           </label>
           <label className="flex flex-col gap-1 text-sm">

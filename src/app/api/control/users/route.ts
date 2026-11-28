@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { hashPassword } from "@/core/auth/password";
 import { db } from "@/db/client";
-import { slugify } from "@/db/seed-leader";
+import { createEmptyLeader, leaderOwnerLogin, leaderTakenMessage } from "@/core/auth/leader-account";
 import { jsonError, parseBody } from "@/lib/http";
 import { requireAdmin } from "@/lib/require-admin";
 
@@ -65,6 +65,11 @@ export async function POST(req: Request) {
   if (d.leaderId) {
     const leader = await db.leader.findUnique({ where: { id: d.leaderId }, select: { id: true } });
     if (!leader) return jsonError(404, "Руководитель не найден");
+    // Один кабинет — одна учётная запись руководителя: иначе второй пользователь увидит чужие интеграции и письма.
+    if (d.role === "LEADER") {
+      const owner = await leaderOwnerLogin(db, d.leaderId);
+      if (owner) return jsonError(409, leaderTakenMessage(owner));
+    }
   }
   const clash = await db.appUser.findFirst({
     where: { OR: [{ login: d.login }, ...(d.telegramId ? [{ telegramId: d.telegramId }] : [])] },
@@ -72,17 +77,8 @@ export async function POST(req: Request) {
   });
   if (clash) return jsonError(409, "Такой логин или Telegram ID уже заведён");
 
-  // Новый пустой руководитель, как в мастере (/api/leaders): профиль, правила и подключения у него свои и пустые.
   let leaderId = d.leaderId ?? null;
-  if (d.newLeader) {
-    const base = slugify(d.displayName) || slugify(d.login) || "leader";
-    const slug = (await db.leader.findUnique({ where: { slug: base }, select: { id: true } })) ? `${base}-${Date.now().toString(36)}` : base;
-    const created = await db.leader.create({
-      data: { slug, name: d.displayName, role: "Руководитель", email: `${slug}@leader.local`, quarterGoals: [], stylePrompt: "", savedMinutesConfig: {}, profileMarkdown: "" },
-      select: { id: true },
-    });
-    leaderId = created.id;
-  }
+  if (d.newLeader) leaderId = (await createEmptyLeader(db, { displayName: d.displayName, login: d.login })).id;
 
   const user = await db.appUser.create({
     data: {

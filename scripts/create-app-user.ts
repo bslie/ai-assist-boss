@@ -7,6 +7,7 @@
  * Пароль берётся только из APP_USER_PASSWORD (не из аргументов, чтобы не попадал в историю shell).
  */
 import "dotenv/config";
+import { createEmptyLeader, leaderOwnerLogin, leaderTakenMessage } from "@/core/auth/leader-account";
 import { hashPassword } from "@/core/auth/password";
 import { db } from "@/db/client";
 
@@ -34,8 +35,13 @@ async function main() {
     const leader = await db.leader.findUnique({ where: { slug: leaderSlug }, select: { id: true } });
     if (!leader) throw new Error(`Руководитель со slug «${leaderSlug}» не найден`);
     leaderId = leader.id;
+    if (role === "LEADER") {
+      const owner = await leaderOwnerLogin(db, leader.id);
+      if (owner) throw new Error(leaderTakenMessage(owner));
+    }
   }
-  if (role === "LEADER" && !leaderId) throw new Error("Для роли LEADER нужен --leader <slug>");
+  // Руководитель без --leader получает нового пустого руководителя: чистый кабинет без чужих подключений.
+  if (role === "LEADER" && !leaderId) leaderId = (await createEmptyLeader(db, { displayName, login })).id;
 
   const user = await db.appUser.create({
     data: {
@@ -47,7 +53,7 @@ async function main() {
       passwordHash: password ? await hashPassword(password) : null,
     },
   });
-  console.log(`Создана учётная запись «${user.login}» (${user.role})${leaderId ? `, руководитель ${leaderSlug}` : ""}.`);
+  console.log(`Создана учётная запись «${user.login}» (${user.role})${leaderId ? `, руководитель ${leaderSlug ?? "новый (пустой кабинет)"}` : ""}.`);
 }
 
 main()
