@@ -11,6 +11,7 @@ import { isMailType, verifyMailCredentials } from "../mail/factory";
 import { probeMcp, type McpTool } from "./mcp";
 import { configuredOAuthApps } from "./oauth-app";
 import { verifyConnectorCredentials } from "./verify";
+import { leaderBindSecret } from "../telegram/bindings";
 import { getModule, MODULES } from "./modules";
 import { PermSchema, type ConnectorManifest, type ConnectorTool, type Perm } from "./types";
 
@@ -42,6 +43,8 @@ export interface CatalogItem {
   state: ConnectorState;
   /** Что именно нужно сделать, если подключить пока нельзя. */
   hint: string | null;
+  /** Ссылка-действие для панели подключения (например, привязка Telegram). */
+  link: { label: string; url: string } | null;
   auth: { kind: "none" | "credentials" | "oauth" | "mcp"; fields: { key: string; label: string; secret: boolean; placeholder?: string; help?: string; initial?: string; optional?: boolean; options?: { value: string; label: string }[] }[] };
   /** Инструкция «как подключить» (из манифеста). */
   setup: string[];
@@ -158,6 +161,7 @@ function itemFor(m: ConnectorManifest, row: Row | null, ready: Set<string>): Cat
     color: m.color,
     state,
     hint,
+    link: null,
     auth: {
       kind: m.auth.kind,
       fields: fields.map((f) => ({ key: f.key, label: f.label, secret: f.secret, placeholder: f.placeholder, help: f.help, initial: f.initial, optional: f.optional, options: f.options })),
@@ -174,15 +178,39 @@ function itemFor(m: ConnectorManifest, row: Row | null, ready: Set<string>): Cat
   };
 }
 
+/**
+ * Telegram: бот общий для всех, токен лежит в env воркера, а запись подключения лишь хранит права. Поэтому «подключено» означает,
+ * что чат этого руководителя привязан к боту. Без привязки карточки и план некуда присылать: показываем «нужна настройка»
+ * и личную ссылку привязки (она выводится из слага руководителя и ключа сервера, чужую подобрать нельзя).
+ */
+async function withTelegramBinding(db: PrismaClient, leaderId: string, item: CatalogItem): Promise<CatalogItem> {
+  const bound = (await db.telegramBinding.count({ where: { leaderId, role: "LEADER" } })) > 0;
+  if (bound) return item;
+  const leader = await db.leader.findUnique({ where: { id: leaderId }, select: { slug: true } });
+  const bot = process.env.TELEGRAM_BOT_USERNAME;
+  let url: string | null = null;
+  try {
+    if (leader && bot) url = `https://t.me/${bot}?start=${leader.slug}_${leaderBindSecret(leader.slug)}`;
+  } catch {
+    url = null;
+  }
+  const hint = url
+    ? "Telegram ещё не привязан: откройте ссылку ниже и нажмите Start в боте. Пока не привяжете, карточки решений и утренний план некуда присылать."
+    : "Telegram ещё не привязан, а ссылку собрать нельзя: администратору нужно задать TELEGRAM_BOT_USERNAME и TELEGRAM_BIND_KEY.";
+  const state: ConnectorState = item.state === "available" || item.state === "connected" || item.state === "paused" ? "needs_setup" : item.state;
+  return { ...item, state, hint: item.hint ?? hint, link: url ? { label: "Привязать Telegram", url } : null };
+}
+
 export async function listCatalog(db: PrismaClient, leaderId: string): Promise<CatalogItem[]> {
   const rows = await db.connector.findMany({ where: { leaderId }, orderBy: { createdAt: "asc" } });
   const ready = await configuredOAuthApps(db);
   const out: CatalogItem[] = [];
+  const adjust = (m: ConnectorManifest, item: CatalogItem) => (m.id === "BUILTIN_TELEGRAM" ? withTelegramBinding(db, leaderId, item) : item);
   for (const m of MODULES) {
     const mine = rows.filter((r) => r.type === m.id);
-    for (const r of mine) out.push(itemFor(m, r, ready));
+    for (const r of mine) out.push(await adjust(m, itemFor(m, r, ready)));
     // Модуль без записи (или шаблон «добавить ещё», если модуль допускает несколько) показываем как доступный.
-    if (mine.length === 0 || m.multiple) out.push(itemFor(m, null, ready));
+    if (mine.length === 0 || m.multiple) out.push(await adjust(m, itemFor(m, null, ready)));
   }
   return out;
 }

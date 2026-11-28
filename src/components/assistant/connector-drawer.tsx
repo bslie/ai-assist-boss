@@ -105,6 +105,11 @@ function Body({ item, leaderId, api, onClose, onChanged }: Props & { item: Catal
         <p className="text-[15px] text-soft">{item.description}</p>
 
         {item.hint && <div className="rounded-2xl border border-line bg-ink px-4 py-3 text-[13px] text-amber">{item.hint}</div>}
+        {item.link && (
+          <a href={item.link.url} target="_blank" rel="noreferrer" className="self-start rounded-full bg-amber px-5 py-2.5 text-[14px] font-semibold text-[#1b1305]">
+            {item.link.label}
+          </a>
+        )}
 
         {connected && item.state !== "needs_auth" && (
           <div className="flex items-center justify-between gap-3 rounded-2xl border border-line bg-ink pl-4 pr-1">

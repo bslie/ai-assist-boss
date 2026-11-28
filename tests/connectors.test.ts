@@ -108,10 +108,13 @@ describe.skipIf(!dbUp)("подключения (Postgres)", () => {
 
   const imap = { module: "BUILTIN_IMAP", values: { email: "boss@company.ru", password: "test-password", imapHost: "imap.yandex.ru", smtpHost: "smtp.yandex.ru" } };
 
-  it("каталог показывает все модули; Telegram из профиля уже подключён", async () => {
+  it("каталог показывает все модули; Telegram «подключён» только после привязки чата руководителя", async () => {
     const cat = await listCatalog(db, a);
     expect(cat.map((c) => c.moduleId)).toEqual(expect.arrayContaining(MODULES.map((m) => m.id)));
-    expect(cat.find((c) => c.moduleId === "BUILTIN_TELEGRAM")?.state).toBe("connected");
+    // Запись с правами создаётся при импорте профиля, но чат ещё не привязан: это не «подключено».
+    expect(cat.find((c) => c.moduleId === "BUILTIN_TELEGRAM")?.state).toBe("needs_setup");
+    await db.telegramBinding.create({ data: { chatId: `conn-${a}`, role: "LEADER", leaderId: a, isActive: true } });
+    expect((await listCatalog(db, a)).find((c) => c.moduleId === "BUILTIN_TELEGRAM")?.state).toBe("connected");
     expect(cat.find((c) => c.moduleId === "BUILTIN_GOOGLE_CALENDAR")?.state).not.toBe("soon");
     expect(cat.find((c) => c.moduleId === "BUILTIN_GOOGLE_CALENDAR")?.pollable).toBe(true);
     expect(cat.find((c) => c.moduleId === "BUILTIN_GMAIL")?.pollable).toBe(true);
