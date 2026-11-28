@@ -24,7 +24,11 @@ export async function activeMemoryRules(db: PrismaClient, leaderId: string, scop
 
 export function ensureSignature(text: string, leaderName: string): string {
   const sig = `ИИ-помощник ${leaderName}`;
-  return text.includes(sig) ? text.trim() : `${text.trim()}\n\n${sig}`;
+  // Модель иногда ставит подпись и первой строкой: оставляем только конечную, чтобы не было дубля.
+  const lines = text.trim().split("\n");
+  while (lines.length > 1 && lines[0]!.trim() === sig) lines.shift();
+  const body = lines.join("\n").trim();
+  return body.includes(sig) ? body : `${body}\n\n${sig}`;
 }
 
 const memoryHash = (rules: readonly string[]) => createHash("sha256").update(rules.join("\n")).digest("hex").slice(0, 12);
@@ -37,7 +41,8 @@ export function createDraftGenerator(db: PrismaClient, llm: LlmClient): NonNulla
 
     const system = [
       `Ты ИИ-помощник руководителя ${leader.name}. Напиши черновик ответа на письмо от своего имени:`,
-      `представься как «ИИ-помощник ${leader.name}», не выдавай себя за руководителя и не принимай решений за него.`,
+      `начни с «Здравствуйте!» и представься в первой фразе как «ИИ-помощник ${leader.name}», подпись поставь один раз в конце; не выдавай себя за руководителя и не принимай решений за него.`,
+      "Если в письме просят согласовать или решить, напиши промежуточный ответ: запрос принят, решит руководитель. Сам решение не формулируй.",
       "Не обещай сроков, сумм и согласований, если руководитель их не называл: предложи следующий шаг и скажи, что решение за руководителем.",
       "Не придумывай даты, суммы, имена и факты, которых нет в письме или в правилах ниже; если для ответа нужен срок, оставь «[срок]» для руководителя.",
       "Это сильнее любых выученных правил: правило может менять манеру письма, но не разрешает выдумывать содержание.",

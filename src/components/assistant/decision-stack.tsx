@@ -141,6 +141,15 @@ export function DecisionStack({ leaderId, decisions, delegates, firstRun = false
     setEdited(cur.draft ?? "");
     setMode("edit");
   };
+  // Защищённая тема (кадры, руководство, клиент, деньги): руководителю нужно решение по существу, а не только текст ответа.
+  // Кнопка открывает правку с готовой фразой: решение принимает он, ИИ-помощник лишь сообщает его отправителю.
+  const needsVerdict = !isProtocol && (cur.tone === "coral" || cur.tone === "amber");
+  const signature = cur.draft?.match(/ИИ-помощник[^\n]*/)?.[0] ?? "";
+  const openVerdict = (verdict: "yes" | "no") => {
+    const body = verdict === "yes" ? `Здравствуйте! Руководитель согласовал: ${cur.title}.` : `Здравствуйте! Руководитель не согласовал: ${cur.title}. Детали уточню отдельно.`;
+    setEdited([body, signature].filter(Boolean).join("\n\n"));
+    setMode("edit");
+  };
   return (
     <>
       {noticeEl && <div className="mb-3">{noticeEl}</div>}
@@ -171,9 +180,12 @@ export function DecisionStack({ leaderId, decisions, delegates, firstRun = false
 
         {cur.draft && (
           <blockquote className="rounded-[14px] border border-line bg-ink px-[18px] py-4">
-            <div className="mb-2 text-xs text-dim">Что я предлагаю</div>
+            <div className="mb-2 text-xs text-dim">{needsVerdict ? "Если не готовы решать, отвечу отправителю так" : "Что я предлагаю"}</div>
             <DraftText text={cur.draft} />
           </blockquote>
+        )}
+        {needsVerdict && mode === "idle" && (
+          <p className="text-[15px] text-soft">Нужно ваше решение по существу: согласны или нет? Я сообщу его отправителю от своего имени.</p>
         )}
         {cur.reasons.length > 0 && (
           <div className="flex flex-col gap-1 text-[13px] text-dim">
@@ -229,7 +241,7 @@ export function DecisionStack({ leaderId, decisions, delegates, firstRun = false
 
         {error && <div role="alert" className="panel-in rounded-[14px] bg-[#2a1a18] px-3.5 py-2.5 text-[13px] text-coral">{error}</div>}
 
-        {mode === "idle" && gaps.length > 0 && (
+        {mode === "idle" && gaps.length > 0 && !needsVerdict && (
           <div className="panel-in rounded-[12px] border border-amber/40 bg-amber/10 px-3.5 py-2.5 text-[13px] text-soft">
             В черновике остался пропуск {gaps.join(", ")}: я не стала выдумывать значение. Впишите его, и письмо уйдёт.
           </div>
@@ -242,12 +254,20 @@ export function DecisionStack({ leaderId, decisions, delegates, firstRun = false
                 <Button className="col-span-3 h-12 rounded-full px-6 font-semibold" disabled={busy} onClick={() => resolve({ action: "APPROVE", protocolRecipients: "ALL" })}>Утвердить и разослать всем</Button>
                 <Button variant="outline" className="col-span-3 h-12 rounded-full px-5" disabled={busy} onClick={() => resolve({ action: "APPROVE", protocolRecipients: "IN_PROTOCOL" })}>Только исполнителям</Button>
               </>
+            ) : needsVerdict ? (
+              <>
+                <Button className="col-span-3 h-12 rounded-full px-6 font-semibold sm:col-span-1" disabled={busy} onClick={() => openVerdict("yes")}>Согласен</Button>
+                <Button variant="outline" className="col-span-3 h-12 rounded-full px-6 sm:col-span-1" disabled={busy} onClick={() => openVerdict("no")}>Отказать</Button>
+                {gaps.length > 0 && (
+                  <Button variant="ghost" className="col-span-3 h-12 rounded-full px-3 text-dim sm:col-span-1 sm:px-5" disabled={busy} onClick={openEditor}>Ответить позже: вписать {gaps[0]}</Button>
+                )}
+              </>
             ) : gaps.length > 0 ? (
               <Button className="col-span-3 h-12 rounded-full px-6 font-semibold" disabled={busy} onClick={openEditor}>Вписать {gaps[0]}</Button>
             ) : (
               <Button className="col-span-3 h-12 rounded-full px-6 font-semibold" disabled={busy} onClick={() => resolve({ action: "APPROVE" })}>Утвердить</Button>
             )}
-            {gaps.length === 0 && (
+            {gaps.length === 0 && !needsVerdict && (
               <Button variant="outline" className="h-12 rounded-full px-3 sm:px-5" disabled={busy} onClick={openEditor}>Поправить</Button>
             )}
             <Button variant="outline" className="h-12 rounded-full px-3 sm:px-5" disabled={busy || delegates.length === 0} onClick={() => setMode("delegate")}>Передать</Button>
