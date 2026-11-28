@@ -6,6 +6,7 @@ import { ArrowUp, ChevronDown, Mic, X } from "lucide-react";
 import { z } from "zod";
 import type { ChatReply } from "@/core/chat";
 import { cn } from "@/lib/utils";
+import { ChatText } from "./chat-text";
 
 /** Пока подсказки генерируются или сервер не ответил, показываем нейтральный набор. */
 const PLACEHOLDER_SUGGESTIONS = ["Что на сегодня?", "Что ты умеешь?"];
@@ -248,7 +249,7 @@ export function Composer({ leaderId, children }: { leaderId: string; /** Под 
                     <div key={i} className="chat-in flex gap-2.5">
                       <Avatar />
                       <div className="flex min-w-0 flex-1 flex-col gap-2.5 text-[15px] text-foreground">
-                        <div className="whitespace-pre-wrap break-words leading-relaxed">{m.text}</div>
+                        <ChatText text={m.text} />
                         {m.draft && (
                           <blockquote className="whitespace-pre-wrap break-words rounded-2xl border border-line bg-ink px-4 py-3 font-serif text-[16px] leading-normal text-soft">
                             {m.draft}
