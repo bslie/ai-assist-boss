@@ -260,7 +260,7 @@ describe.skipIf(!dbUp)("опрос и отправка (Postgres)", () => {
       },
     });
 
-  it("утверждённый ответ уходит через подключение с подписью помощника, в ту же ветку", async () => {
+  it("утверждённый ответ уходит через подключение без подписи помощника, в ту же ветку", async () => {
     const d = await approvedDecision(a);
     const f = fakeMail([]);
     const r = await executeApprovedReply(db, a, d.id, { connector: f.c });
@@ -268,7 +268,7 @@ describe.skipIf(!dbUp)("опрос и отправка (Postgres)", () => {
     expect(f.calls.sent).toHaveLength(1);
     expect(f.calls.sent[0]).toMatchObject({ to: "hr@corp.ru", subject: "Вопрос", inReplyTo: "<id@x>", externalId: "imap:1:10" });
     expect(f.calls.sent[0].text).toContain("Рассмотрю в четверг.");
-    expect(f.calls.sent[0].text).toMatch(/ИИ-помощник/);
+    expect(f.calls.sent[0].text).not.toMatch(/ИИ-помощник/);
     expect(await db.activityLog.count({ where: { leaderId: a, action: "MAIL_SENT" } })).toBeGreaterThan(0);
     expect(await db.activityLog.count({ where: { leaderId: a, action: "ALLOW:mail.send_reply" } }) + (await db.activityLog.count({ where: { leaderId: a, action: "APPROVE:mail.send_reply" } }))).toBeGreaterThan(0);
   });

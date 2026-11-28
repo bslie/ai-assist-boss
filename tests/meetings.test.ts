@@ -166,7 +166,7 @@ describe.skipIf(!dbUp)("протокол встречи: от транскрип
     expect(logs[0].savedMinutes).toBe(30);
   });
 
-  it("рассылка: протокол уходит каждому участнику с подписью ИИ-помощника, сбой одного адреса не рвёт остальные", async () => {
+  it("рассылка: протокол уходит каждому участнику без подписи ИИ-помощника, сбой одного адреса не рвёт остальные", async () => {
     const m2 = await db.meeting.findFirstOrThrow({ where: { leaderId, title: "Планёрка направления", isProtocolApproved: false }, orderBy: { startAt: "asc" } });
     const { llm } = fakeLlm();
     const res = await generateProtocolDecision({ db, llm, examples: [] }, leaderId, m2.id, TRANSCRIPT + " ещё один раз");
@@ -179,7 +179,7 @@ describe.skipIf(!dbUp)("протокол встречи: от транскрип
     expect(out).toMatchObject({ applicable: true, mailsSent: n - 1, mailsFailed: 1 });
     expect(mail.sent).toHaveLength(n - 1);
     expect(mail.sent[0].subject).toContain("Протокол встречи");
-    expect(mail.sent[0].text).toContain("ИИ-помощник");
+    expect(mail.sent[0].text).not.toContain("ИИ-помощник");
     expect(await db.activityLog.count({ where: { leaderId, action: "PROTOCOL_MAIL_FAILED" } })).toBe(1);
   });
 

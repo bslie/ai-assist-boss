@@ -99,7 +99,7 @@ describe.skipIf(!dbUp)("чат (Postgres)", () => {
     expect(await db.memory.count({ where: { leaderId, ruleText: { contains: "без моего подтверждения" } } })).toBe(0);
   });
 
-  it("«ответь …» предлагает ответ с подписью и кнопкой, ничего не отправляя", async () => {
+  it("«ответь …» предлагает ответ без подписи помощника и с кнопкой, ничего не отправляя", async () => {
     const d = await db.decision.create({
       data: { leaderId, type: "EMAIL_REPLY", title: "Бюджет", contextSummary: "Просят срок", gateReasons: [], aiRecommendation: "Ответить", proposedPayload: {}, status: "PENDING" },
     });
@@ -110,7 +110,7 @@ describe.skipIf(!dbUp)("чат (Postgres)", () => {
     const r = await handleChat(db, llm, leaderId, "Ответь Павловой, что в четверг");
     expect(r.actions).toHaveLength(1);
     const a = r.actions?.[0];
-    expect(a && "resolve" in a ? a.resolve.body.editedText : "").toContain("ИИ-помощник");
+    expect(a && "resolve" in a ? a.resolve.body.editedText : "").not.toContain("ИИ-помощник");
     expect((await db.decision.findFirstOrThrow({ where: { id: d.id } })).status).toBe("PENDING");
   });
 
