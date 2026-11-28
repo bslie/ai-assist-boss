@@ -8,7 +8,7 @@ import type { PrismaClient } from "@/generated/prisma/client";
 import { clock } from "../clock";
 import { publishEvent } from "../events";
 import type { LlmClient } from "../llm";
-import { formulateCriteria } from "./criteria";
+import { defaultCriteria, formulateCriteria } from "./criteria";
 
 export const CreateTaskSchema = z.object({
   title: z.string().trim().min(3).max(200),
@@ -70,7 +70,7 @@ export async function createTask(db: PrismaClient, llm: LlmClient | null, leader
 
   let criteria = input.acceptanceCriteria?.trim() || "";
   if (!criteria && llm) criteria = await formulateCriteria(llm, leaderId, { title: input.title, description: input.description }).catch(() => "");
-  if (!criteria) criteria = `Результат по задаче «${input.title}» предоставлен к сроку`;
+  if (!criteria) criteria = defaultCriteria(input.title);
 
   const t = await db.task.create({
     data: {
