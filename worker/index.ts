@@ -21,6 +21,8 @@ import { dueAvatarMeetings, launchAvatarBot } from "@/core/meetings/recall";
 import { collectRecallProtocol, dueTranscriptMeetings } from "@/core/meetings/transcript-poll";
 import { dueDossiers, sendDossier } from "@/core/meetings/dossier";
 import { relayEvent } from "@/core/telegram/relay";
+import { handleText } from "@/core/telegram/handlers";
+import { esc } from "@/core/telegram/types";
 import { processDueBusinessMessages } from "@/core/telegram/business";
 import { createDraftGenerator } from "@/core/learning/draft";
 import { runActivity } from "@/core/worker-activity";
@@ -90,7 +92,26 @@ async function main() {
   worker.on("failed", (job, err) => log(`рутина ${job?.data.code} упала:`, err.message));
 
   // Карточки решений: web/ingest публикуют события, воркер доставляет их в Telegram.
+  // Демо из меню маскота: «Написали в Telegram, бот ответил». Вопрос показываем в чате руководителя и отвечаем так же, как на живое сообщение.
+  const runDemoTelegramChat = async (leaderId: string, text: string) => {
+    const question = text.trim().slice(0, 500);
+    if (!question) return;
+    const rows = await db.telegramBinding.findMany({ where: { leaderId, role: "LEADER" }, select: { chatId: true } });
+    for (const chatId of new Set(rows.map((r) => r.chatId))) {
+      await messenger.send(chatId, `<i>Демо: вопрос руководителя</i>\n${esc(question)}`);
+      const reply = await handleText({ db, messenger, state, learns, llm }, chatId, question);
+      if (reply) await messenger.send(chatId, reply);
+    }
+  };
+
   const unsubscribe = await subscribeAllEvents((leaderId, e) => {
+    if (e.type === "demo.telegram_chat") {
+      const text = typeof e.data.text === "string" ? e.data.text : "";
+      runActivity(leaderId, "Отвечаю в Telegram", () => runDemoTelegramChat(leaderId, text))
+        .then(() => log("демо: ответ бота в Telegram отправлен"))
+        .catch((err) => log("демо: ответ в Telegram не удался:", (err as Error).message));
+      return;
+    }
     relayEvent({ db, messenger, llm }, leaderId, e)
       .then((what) => what && log(`событие ${e.type}: ${what}`))
       .catch((err) => log(`событие ${e.type}: ошибка:`, (err as Error).message));

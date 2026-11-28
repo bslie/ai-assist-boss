@@ -5,6 +5,7 @@ import { AvatarArt, type Accessory, type Mood, type Pose } from "./avatar-art";
 import { AVATAR_EVENT, SCENE_IDS, avatarCommand, type AvatarCommand, type SceneId } from "./avatar-bus";
 import { renderSceneProps } from "./avatar-scenes";
 import { collectAvoid, findSafeSpot, overlapAt, type Vec } from "./avoid";
+import { DemoMenu } from "./demo-menu";
 
 const SIZE = 128; // px, квадрат
 const HALF = SIZE * 0.34; // видимая половина тела: по ней считаем, что он закрывает
@@ -57,8 +58,9 @@ function inside(p: Vec | null, r: DOMRect): boolean {
 //  2. Он никогда не перехватывает клики и фокус, обходит текст и кнопки, прячется за модалками.
 //  3. Если человек отошёл (IDLE_AFTER_MS без мыши, клавиатуры, кликов и прокрутки), он играет сценки
 //     с реквизитом. Любое действие пользователя мгновенно сворачивает сценку.
-export function AvatarLayer({ leaderId }: { leaderId?: string }) {
+export function AvatarLayer({ leaderId, demo = false }: { leaderId?: string; /** Администратор: клик по маскоту открывает меню управления демо. */ demo?: boolean }) {
   const [mounted, setMounted] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   // Чем сейчас занят воркер: пока фраза есть, маскот сидит с ноутбуком и подписывает, что делает.
   const [status, setStatus] = useState<string | null>(null);
   const isWorking = status !== null;
@@ -880,13 +882,19 @@ export function AvatarLayer({ leaderId }: { leaderId?: string }) {
             {status}
           </div>
         )}
-        <div ref={bodyRef} style={{ width: "100%", height: "100%" }}>
+        <div
+          ref={bodyRef}
+          data-demo-trigger={demo ? "" : undefined}
+          onClick={demo ? () => setMenuOpen((o) => !o) : undefined}
+          style={{ width: "100%", height: "100%", ...(demo ? { pointerEvents: "auto" as const, cursor: "pointer" } : {}) }}
+        >
           <div ref={shapeRef} style={{ width: "100%", height: "100%", transformOrigin: "50% 88%" }}>
             <AvatarArt mood={mood} live={view.live || workLook} acc={workLook ? "headphones" : view.acc} pose={workLook ? "type" : view.pose} />
           </div>
         </div>
         {props && <div className={stageCls}>{props.front}</div>}
       </div>
+      {demo && menuOpen && leaderId && <DemoMenu leaderId={leaderId} onClose={() => setMenuOpen(false)} />}
     </>
   );
 }

@@ -18,6 +18,8 @@ export const EVENT_TYPES = [
   "leader.notify",
   /** Чем сейчас занят воркер для этого руководителя. data.label — короткая фраза или null, если свободен. */
   "worker.activity",
+  /** Демо: вопрос руководителя боту в Telegram и ответ бота. Исполняет воркер (у него есть бот). data.text — вопрос. */
+  "demo.telegram_chat",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 

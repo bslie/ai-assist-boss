@@ -9,7 +9,8 @@ export const microsoft365: ConnectorManifest = {
   sees: ["Входящие письма и ветки переписки", "Календарь: встречи и свободное время", "Письма уходят только от вашего имени и по вашим правилам"],
   letter: "M",
   color: "#3b82f6",
-  status: "ready",
+  // Не успели настроить OAuth-приложение и проверить на живом ящике: в каталоге виден с плашкой «Скоро», подключить нельзя.
+  status: "soon",
   auth: {
     kind: "oauth",
     authorizeUrl: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",

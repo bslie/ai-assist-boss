@@ -40,6 +40,8 @@ export interface NewEvent {
   start: Date;
   end: Date;
   attendees?: string[];
+  /** Ссылка на видеовстречу (Zoom и др.): кладётся в место и описание, оттуда её читает синхронизация. */
+  meetingUrl?: string;
   /** Рассылать ли приглашения участникам: письмо уйдёт от имени руководителя. */
   notify: boolean;
 }
@@ -151,6 +153,7 @@ export class GoogleCalendarClient {
       start: { dateTime: e.start.toISOString() },
       end: { dateTime: e.end.toISOString() },
       ...(e.attendees?.length ? { attendees: e.attendees.map((email) => ({ email })) } : {}),
+      ...(e.meetingUrl ? { location: e.meetingUrl, description: e.meetingUrl } : {}),
     };
     const q = new URLSearchParams({ sendUpdates: e.notify ? "all" : "none" });
     const res = await this.g(`/events?${q}`, { method: "POST", body: JSON.stringify(body) });

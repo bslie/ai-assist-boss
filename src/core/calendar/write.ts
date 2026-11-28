@@ -19,6 +19,8 @@ export type WriteResult =
 export interface WriteOptions {
   /** Руководитель уже согласился (утвердил карточку, сам нажал «перенести»). */
   approvedByLeader?: boolean;
+  /** Не приглашать участников: событие создаётся только в календаре руководителя (демо с вымышленными адресами). */
+  noInvites?: boolean;
   /** Подмена в тестах: готовый клиент вместо сетевого. */
   client?: Pick<GoogleCalendarClient, "createEvent" | "moveEvent" | "cancelEvent">;
 }
@@ -70,8 +72,8 @@ export async function pushNewMeeting(db: PrismaClient, leaderId: string, meeting
   const client = opts.client ?? createCalendarClient(db, a.row);
   if (!client) return { status: "skipped", reason: "Нет доступа к календарю: войдите заново" };
   try {
-    const attendees = Array.isArray(m.attendees) ? (m.attendees as string[]) : [];
-    const id = await client.createEvent({ title: m.title, start: clock.toReal(m.startAt), end: clock.toReal(m.endAt), attendees, notify: a.notify });
+    const attendees = opts.noInvites ? [] : Array.isArray(m.attendees) ? (m.attendees as string[]) : [];
+    const id = await client.createEvent({ title: m.title, start: clock.toReal(m.startAt), end: clock.toReal(m.endAt), attendees, meetingUrl: m.meetingUrl ?? undefined, notify: opts.noInvites ? false : a.notify });
     await db.meeting.updateMany({ where: { id: m.id, leaderId }, data: { externalId: `${GCAL_PREFIX}${id}` } });
     await logCalendar(db, leaderId, "CALENDAR_EVENT_CREATED", `Создала встречу «${m.title}» в Google Календаре`, m.id);
     return { status: "done", externalId: id };

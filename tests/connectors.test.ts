@@ -118,10 +118,16 @@ describe.skipIf(!dbUp)("подключения (Postgres)", () => {
   });
 
   it("OAuth-модуль без настроенного приложения: «нужна настройка», подключить через форму нельзя", async () => {
+    const gm = (await listCatalog(db, a)).find((c) => c.moduleId === "BUILTIN_GMAIL")!;
+    expect(gm.state).toBe("needs_setup");
+    expect(gm.hint).toContain("Интеграции");
+    expect(await connectModule(db, a, { module: "BUILTIN_GMAIL" })).toMatchObject({ ok: false, code: "INVALID" });
+  });
+
+  it("Microsoft 365 не успели настроить: плашка «Скоро», подключить нельзя", async () => {
     const ms = (await listCatalog(db, a)).find((c) => c.moduleId === "BUILTIN_GRAPH")!;
-    expect(ms.state).toBe("needs_setup");
-    expect(ms.hint).toContain("Интеграции");
-    expect(await connectModule(db, a, { module: "BUILTIN_GRAPH" })).toMatchObject({ ok: false, code: "INVALID" });
+    expect(ms.state).toBe("soon");
+    expect(await connectModule(db, a, { module: "BUILTIN_GRAPH" })).toMatchObject({ ok: false, code: "UNAVAILABLE" });
   });
 
   it("доступы шифруются в БД и не попадают в каталог; повторное подключение — конфликт", async () => {
