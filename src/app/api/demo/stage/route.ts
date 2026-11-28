@@ -13,6 +13,7 @@ import { createProviderOrReplay } from "@/core/llm/providers";
 import { dbUsageSink } from "@/core/llm/usage-db";
 import { detectPlatform, MeetingUrlSchema } from "@/core/meetings/platform";
 import { createCriteriaGenerator } from "@/core/tasks/criteria";
+import { ensureDatasetBase } from "@/db/dataset-base";
 import { db } from "@/db/client";
 import { jsonError, parseBody, requireLeaderId } from "@/lib/http";
 
@@ -73,6 +74,8 @@ export async function POST(req: Request) {
     const fresh = pool.filter((m) => !have.has(m.externalId)).slice(0, input.count);
     if (fresh.length === 0) return jsonError(409, "Письма датасета закончились: сбросьте данные стенда (npm run db:seed)");
     try {
+      // Письма ссылаются на людей из оргструктуры: у нового руководителя её ещё нет.
+      await ensureDatasetBase(db, leaderId);
       // Письма приходят «сейчас»: иначе в «Разговоре» они выглядели бы старыми.
       const mails = fresh.map((m, i) => ({ ...m, receivedAt: new Date(clk.now().getTime() - (fresh.length - i) * 60_000) }));
       const stats = await ingestEmails(db, llm, leaderId, mails, {

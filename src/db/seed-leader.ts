@@ -67,11 +67,23 @@ export async function seedLeader(db: PrismaClient, input: SeedLeaderInput): Prom
   });
   const leaderId = leader.id;
 
+  const byName = await seedEmployees(db, leaderId, input.members, input.areas);
+
+  const diff = await diffProfile(db, leaderId, input.draft);
+  await applyProfile(db, leaderId, input.draft, input.profileMarkdown);
+
+  await seedCalendarAndTasks(db, leaderId, { meetings: input.meetings, tasks: input.tasks, protectedBlocks: input.draft.protectedBlocks ?? [], byName });
+
+  return { leaderId, diff, employees: input.members.length, meetings: input.meetings.length, tasks: input.tasks.length };
+}
+
+/** Сотрудники руководителя из оргструктуры (идемпотентно). Возвращает имя → id для привязки поручений. */
+export async function seedEmployees(db: PrismaClient, leaderId: string, members: OrgMember[], areas: Record<string, string>): Promise<Map<string, string>> {
   const byName = new Map<string, string>();
-  for (const m of input.members) {
+  for (const m of members) {
     const e = await db.employee.upsert({
       where: { leaderId_email: { leaderId, email: m.email } },
-      update: { name: m.name, position: m.position, relationType: m.relationType, responsibilityArea: input.areas[m.externalId] ?? null },
+      update: { name: m.name, position: m.position, relationType: m.relationType, responsibilityArea: areas[m.externalId] ?? null },
       create: {
         leaderId,
         externalId: m.externalId,
@@ -79,15 +91,28 @@ export async function seedLeader(db: PrismaClient, input: SeedLeaderInput): Prom
         email: m.email,
         position: m.position,
         relationType: m.relationType,
-        responsibilityArea: input.areas[m.externalId] ?? null,
+        responsibilityArea: areas[m.externalId] ?? null,
       },
     });
     byName.set(m.name, e.id);
   }
 
-  const diff = await diffProfile(db, leaderId, input.draft);
-  await applyProfile(db, leaderId, input.draft, input.profileMarkdown);
+  return byName;
+}
 
+/** Календарь и задачи датасета: пересоздаются целиком (идемпотентно). Встречи из Google Календаря не трогаем. */
+export async function seedCalendarAndTasks(
+  db: PrismaClient,
+  leaderId: string,
+  input: { meetings: CalendarEvent[]; tasks: DatasetTask[]; protectedBlocks: string[]; byName: Map<string, string> },
+): Promise<void> {
+  await seedMeetings(db, leaderId, input.meetings, input.protectedBlocks);
+  await seedTasks(db, leaderId, input.tasks, input.byName);
+}
+
+/** Встречи датасета (пересоздаются целиком). Встречи из Google Календаря (gcal:…) не трогаем: их ведёт синхронизация. */
+export async function seedMeetings(db: PrismaClient, leaderId: string, meetings: CalendarEvent[], protectedBlocks: string[]): Promise<void> {
+  const input = { meetings, protectedBlocks };
   // Календарь и задачи пересоздаются целиком: сидер идемпотентен.
   // Встречи из Google Календаря (gcal:…) не трогаем: их ведёт синхронизация.
   await db.meeting.deleteMany({ where: { leaderId, externalId: { not: null }, NOT: { externalId: { startsWith: "gcal:" } } } });
@@ -100,9 +125,9 @@ export async function seedLeader(db: PrismaClient, input: SeedLeaderInput): Prom
       startAt: e.start,
       endAt: e.end,
       attendees: e.attendees,
-      participationMode: defaultParticipation(e.category, e.summary, input.draft.protectedBlocks ?? []),
+      participationMode: defaultParticipation(e.category, e.summary, input.protectedBlocks),
       // Ссылка из календаря; в датасете её нет, поэтому для демо с настоящим Zoom задаётся DEMO_MEETING_URL (только встречам с аватаром).
-      meetingUrl: e.url ?? (defaultParticipation(e.category, e.summary, input.draft.protectedBlocks ?? []) === "AVATAR" ? (process.env.DEMO_MEETING_URL ?? null) : null),
+      meetingUrl: e.url ?? (defaultParticipation(e.category, e.summary, input.protectedBlocks) === "AVATAR" ? (process.env.DEMO_MEETING_URL ?? null) : null),
     })),
   });
   // Серия встреч: предыдущая встреча с тем же названием (нужна для вопросов по прошлому протоколу).
@@ -114,12 +139,17 @@ export async function seedLeader(db: PrismaClient, input: SeedLeaderInput): Prom
     lastByTitle.set(m.title, m.id);
   }
 
+}
+
+/** Задачи датасета (пересоздаются целиком). Исполнитель — по имени из оргструктуры; без совпадения задача остаётся у руководителя. */
+export async function seedTasks(db: PrismaClient, leaderId: string, tasks: DatasetTask[], byName: Map<string, string>): Promise<void> {
+  const input = { tasks, byName };
   await db.task.deleteMany({ where: { leaderId, sourceType: "DATASET" } });
   await db.task.createMany({
     data: input.tasks.map((t) => ({
       leaderId,
       externalId: t.externalId,
-      assigneeId: byName.get(t.ownerName) ?? null, // задачи самого руководителя без исполнителя
+      assigneeId: input.byName.get(t.ownerName) ?? null, // задачи самого руководителя без исполнителя
       title: t.title,
       description: `Источник: ${t.source}`,
       // TODO: измеримый критерий формулирует LLM при постановке (SPEC 4.3.1).
@@ -131,5 +161,4 @@ export async function seedLeader(db: PrismaClient, input: SeedLeaderInput): Prom
     })),
   });
 
-  return { leaderId, diff, employees: input.members.length, meetings: input.meetings.length, tasks: input.tasks.length };
 }

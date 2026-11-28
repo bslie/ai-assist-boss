@@ -231,6 +231,24 @@ function Users({ viewerLogin }: { viewerLogin: string }) {
   // Сброс до «первого входа»: два шага, потому что подключения и история разбора удаляются без возврата.
   const [resetFor, setResetFor] = useState<string | null>(null);
   const [resetting, setResetting] = useState(false);
+  // Удаление руководителя: тоже в два шага, вместе с ним уходят сотрудники, письма, поручения и подключения.
+  const router = useRouter();
+  const [deleteFor, setDeleteFor] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  async function deleteLeader(l: Leader) {
+    setDeleting(true);
+    setError(null);
+    setNotice(null);
+    const r = await api<{ accountsDeleted: number }>(`/api/leaders/${encodeURIComponent(l.id)}`, { method: "DELETE", body: JSON.stringify({ confirm: true }) });
+    setDeleting(false);
+    setDeleteFor(null);
+    if (!r.ok) return setError(r.error);
+    setNotice(`Руководитель «${l.name}» удалён${r.data.accountsDeleted ? `, учётных записей: ${r.data.accountsDeleted}` : ""}`);
+    setLeaders((all) => all.filter((x) => x.id !== l.id));
+    load();
+    router.refresh();
+  }
 
   async function resetUser(u: AppUserRow) {
     setResetting(true);
@@ -407,6 +425,41 @@ function Users({ viewerLogin }: { viewerLogin: string }) {
               </tbody>
             </table>
           </div>
+        )}
+      </div>
+
+      <div className="overflow-hidden rounded-xl border border-border bg-raised">
+        <div className="border-b border-border px-4 py-2.5 text-sm font-medium">Руководители</div>
+        {leaders.length === 0 ? (
+          <p className="px-5 py-4 text-sm text-dim">Руководителей пока нет.</p>
+        ) : (
+          <ul>
+            {leaders.map((l) => {
+              const accounts = (users ?? []).filter((u) => u.leaderId === l.id);
+              return (
+                <li key={l.id} className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-3 last:border-0">
+                  <div className="min-w-0">
+                    <div className="font-medium">{l.name}</div>
+                    <div className="text-xs text-dim">{accounts.length ? `Учётные записи: ${accounts.map((a) => a.login).join(", ")}` : "Без учётных записей"}</div>
+                  </div>
+                  {deleteFor === l.id ? (
+                    <div className="flex max-w-sm flex-col gap-2 text-xs text-soft">
+                      <span>
+                        Удалить «{l.name}» со всеми данными: сотрудники, письма, карточки, поручения, встречи, подключения и привязки Telegram.
+                        {accounts.some((a) => a.role === "LEADER") ? " Учётные записи-руководители этого кабинета тоже будут удалены." : ""} Это не отменить.
+                      </span>
+                      <div className="flex gap-2">
+                        <Button variant="destructive" className="h-8 px-3" disabled={deleting} onClick={() => deleteLeader(l)}>Да, удалить</Button>
+                        <Button variant="outline" className="h-8 px-3" disabled={deleting} onClick={() => setDeleteFor(null)}>Отмена</Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <Button variant="outline" className="h-8 px-3" onClick={() => setDeleteFor(l.id)}>Удалить руководителя</Button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
         )}
       </div>
 

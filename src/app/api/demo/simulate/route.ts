@@ -12,6 +12,7 @@ import { LlmClient } from "@/core/llm";
 import { dbUsageSink } from "@/core/llm/usage-db";
 import { FileCache } from "@/core/llm/file-cache";
 import { createProviderOrReplay } from "@/core/llm/providers";
+import { ensureDatasetBase } from "@/db/dataset-base";
 import { db } from "@/db/client";
 import { jsonError, parseBody, requireLeaderId } from "@/lib/http";
 import { protocolLlm } from "@/lib/web-llm";
@@ -87,6 +88,8 @@ export async function POST(req: Request) {
   const draftLlm = new LlmClient({ provider, cache: new FileCache(DRAFT_CACHE_FILE), usage: dbUsageSink(db) });
 
   try {
+    // Датасет целиком: сначала оргструктура, календарь и поручения (письма ссылаются на этих людей), потом письма.
+    const base = await ensureDatasetBase(db, auth.leaderId);
     // Основной датасет или небольшая добавленная пачка (порог бюджета, повтор, обращение клиента): в eval она не входит.
     const mails = body.data.scenario === "TRIGGER_EMAIL_BATCH" ? loadInbox(PROFILES_DIR, "extra_inbox.csv") : loadInbox();
     const stats = await ingestEmails(db, llm, auth.leaderId, mails, {
@@ -95,7 +98,7 @@ export async function POST(req: Request) {
       criteria: createCriteriaGenerator(draftLlm),
     });
     await publishEvent(auth.leaderId, { type: "metrics.updated", data: {} });
-    return NextResponse.json({ scenario: body.data.scenario, stats });
+    return NextResponse.json({ scenario: body.data.scenario, stats, base });
   } catch (e) {
     return jsonError(502, `Разбор почты не удался: ${(e as Error).message}`);
   }
