@@ -326,7 +326,8 @@ export async function generateProtocolDecision(deps: GenerateDeps, leaderId: str
       leaderId,
       type: "MEETING_PROTOCOL",
       title: `Протокол: ${meeting.title}`,
-      contextSummary: `${data.decisions.length ? data.decisions.slice(0, 3).join(" ") : (data.notes[0]?.topic ?? "Итоги встречи")}. Поручений: ${assignments.length}.`,
+      // Решения модель пишет с точкой на конце: без обрезки получается «…планёрки.. Поручений».
+      contextSummary: `${(data.decisions.length ? data.decisions.slice(0, 3).join(" ") : (data.notes[0]?.topic ?? "Итоги встречи")).trim().replace(/[.\s]+$/, "")}. Поручений: ${assignments.length}.`,
       gateReasons: ["Рассылка протокола участникам и поручения исполнителям уходят наружу только после вашего утверждения"],
       aiRecommendation: [
         "Утвердить: разошлю протокол участникам и поставлю поручения.",

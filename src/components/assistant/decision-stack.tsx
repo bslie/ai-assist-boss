@@ -25,6 +25,9 @@ type Mode = "idle" | "edit" | "delegate";
 type Exit = "approve" | "delegate" | "snooze";
 
 const EXIT_MS = 360; // длительность card-out-* в globals.css
+/** Что сказать после действия: без обещаний, чего мы не знаем (ушло ли письмо, решает политика и подключения). */
+const doneText = (action: unknown, type: string): string =>
+  action === "APPROVE" ? (type === "MEETING_PROTOCOL" ? "Протокол утверждён" : "Утверждено") : action === "EDITED_APPROVED" ? "Принят ваш вариант" : action === "DELEGATE" ? "Передано" : "Верну в утреннем плане";
 const exitFor = (action: unknown): Exit => (action === "APPROVE" || action === "EDITED_APPROVED" ? "approve" : action === "DELEGATE" ? "delegate" : "snooze");
 
 /** Стопка карточек решений. Действия уходят в POST /api/decisions/[id]/resolve. */
@@ -36,6 +39,10 @@ export function DecisionStack({ leaderId, decisions, delegates }: { leaderId: st
   const [delegateId, setDelegateId] = useState(delegates[0]?.id ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Короткое подтверждение сделанного: карточка исчезает, и без него непонятно, что нажатие сработало.
+  const [notice, setNotice] = useState<string | null>(null);
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => void (noticeTimer.current && clearTimeout(noticeTimer.current)), []);
   // Карточка, которая сейчас уезжает: после ответа сервера она проигрывает уход, и только потом показывается следующая.
   const [leaving, setLeaving] = useState<{ id: string; exit: Exit } | null>(null);
   // Карточка, с которой открыли страницу, не анимируем (её показывает общее вступление главной); все последующие въезжают.
@@ -79,6 +86,9 @@ export function DecisionStack({ leaderId, decisions, delegates }: { leaderId: st
       setLeaving(null);
       setMode("idle");
       setEdited("");
+      if (noticeTimer.current) clearTimeout(noticeTimer.current);
+      setNotice(res.ok ? doneText(body.action, cur.type) : "Это уже решено в другом месте");
+      noticeTimer.current = setTimeout(() => setNotice(null), 4000);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -86,11 +96,21 @@ export function DecisionStack({ leaderId, decisions, delegates }: { leaderId: st
     }
   }
 
+  const noticeEl = notice ? (
+    <div role="status" className="chat-in flex items-center gap-2 text-[14px] text-sage">
+      <span aria-hidden className="size-1.5 rounded-full bg-sage" />
+      {notice}
+    </div>
+  ) : null;
+
   if (!cur) {
     return (
-      <div className={cn("flex flex-col gap-3 rounded-[22px] border border-dashed border-line-strong p-7", firstId !== undefined && "card-in")}>
-        <div className="font-serif text-[28px] font-medium leading-tight">Очередь пуста. Спасибо, дальше я сама.</div>
-        <div className="text-dim">Следующее письмо с защищённой темой я принесу сюда сразу.</div>
+      <div className="flex flex-col gap-3">
+        {noticeEl}
+        <div className={cn("flex flex-col gap-3 rounded-[22px] border border-dashed border-line-strong p-7", firstId !== undefined && "card-in")}>
+          <div className="font-serif text-[28px] font-medium leading-tight">Очередь пуста. Спасибо, дальше я сама.</div>
+          <div className="text-dim">Следующее письмо с защищённой темой я принесу сюда сразу.</div>
+        </div>
       </div>
     );
   }
@@ -105,6 +125,8 @@ export function DecisionStack({ leaderId, decisions, delegates }: { leaderId: st
     setMode("edit");
   };
   return (
+    <>
+      {noticeEl && <div className="mb-3">{noticeEl}</div>}
     <div className="relative pb-5">
       {/* Подложки стопки: по одной на каждую ждущую карточку (до двух), плавно появляются и исчезают. */}
       <div aria-hidden className={cn("stack-layer absolute inset-x-5 bottom-0 h-10 rounded-b-[22px] border border-line bg-sunken", queue.length > 2 ? "stack-layer-on" : "stack-layer-off")} />
@@ -119,9 +141,7 @@ export function DecisionStack({ leaderId, decisions, delegates }: { leaderId: st
       >
         <div className="flex flex-wrap items-center gap-2.5">
           <span className={`rounded-full px-3 py-1 text-xs font-semibold ${TAG[cur.tone]}`}>{cur.tag}</span>
-          <span className="text-[13px] text-dim">
-            {cur.from} · {cur.when}
-          </span>
+          {(cur.from || cur.when) && <span className="text-[13px] text-dim">{[cur.from, cur.when].filter(Boolean).join(" · ")}</span>}
           <span className="ml-auto text-[13px] text-dim">
             Решение {Math.min(position, total)} из {total}
           </span>
@@ -219,5 +239,6 @@ export function DecisionStack({ leaderId, decisions, delegates }: { leaderId: st
         )}
       </article>
     </div>
+    </>
   );
 }
