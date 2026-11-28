@@ -11,6 +11,7 @@ import { CATEGORY_HELP, EMAIL_ACTIONS, EMAIL_CATEGORIES } from "../email-triage/
 import type { LlmClient } from "../llm";
 import { isLockedCategory } from "../policy-gate";
 import { createRule } from "../rules";
+import { SCOPE_LABEL } from "./mode";
 
 const WEEK_MS = 7 * 86_400_000;
 
@@ -79,6 +80,8 @@ export async function proposeRuleFromText(db: PrismaClient, llm: LlmClient, lead
   if (!draft.category && !draft.senderName) return { ok: false, message: "Не поняла, к каким письмам это относится: назовите отправителя или тип письма." };
 
   let senderEmail: string | undefined;
+  // Как показать отправителя в разборе: полное имя найденного контакта в кавычках, а не «Орлов» из «Письма от Орлова» (склонение).
+  let senderLabel = draft.senderName ?? "";
   if (draft.senderName) {
     const keys = draft.senderName.split(/\s+/).map(stem);
     const people = await db.employee.findMany({ where: { leaderId }, select: { name: true, email: true } });
@@ -86,9 +89,10 @@ export async function proposeRuleFromText(db: PrismaClient, llm: LlmClient, lead
     if (hits.length === 0) return { ok: false, message: `Не нашла среди ваших контактов «${draft.senderName}». Назовите сотрудника по имени или скажите про тип писем.` };
     if (hits.length > 1) return { ok: false, message: `Под «${draft.senderName}» подходят несколько человек: ${hits.map((h) => h.name).join(", ")}. Уточните, о ком речь.` };
     senderEmail = hits[0].email;
+    senderLabel = hits[0].name;
   }
 
-  const who = senderEmail ? `письма от ${draft.senderName}` : `письма вида «${draft.category}»`;
+  const who = senderEmail ? `письма от «${senderLabel}»` : draft.category ? SCOPE_LABEL[draft.category] : "эти письма";
   const proposal: RuleProposal = {
     name: draft.name.trim() || `Правило: ${who}`,
     description: text.slice(0, 500),

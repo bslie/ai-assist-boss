@@ -42,10 +42,16 @@ export async function generateSuggestions(db: PrismaClient, llm: LlmClient, lead
     temperature: 0.4,
   });
   const seen = new Set<string>();
-  return out.suggestions.filter((s) => {
+  return out.suggestions.map(tidySuggestion).filter((s) => {
     const k = s.toLowerCase();
     if (seen.has(k)) return false;
     seen.add(k);
     return true;
   });
+}
+
+/** Единый вид кнопок: заглавная первая буква, без точки в конце (модель отвечает по-разному). */
+export function tidySuggestion(s: string): string {
+  const t = s.trim().replace(/[.\s]+$/, "");
+  return t ? t[0].toLocaleUpperCase("ru-RU") + t.slice(1) : t;
 }

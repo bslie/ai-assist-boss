@@ -64,3 +64,13 @@ describe.skipIf(!dbUp)("resolveDecision: письмо с пропуском не
     expect(await resolveDecision(db, leaderId, d.id, { action: "SNOOZE" })).toEqual({ ok: true, status: "SNOOZED" });
   });
 });
+
+describe("подсказки чата: единый вид кнопок", () => {
+  it("заглавная первая буква, без точки в конце", async () => {
+    const { tidySuggestion } = await import("@/core/chat-suggestions");
+    expect(tidySuggestion("подготовь к согласованию КП")).toBe("Подготовь к согласованию КП");
+    expect(tidySuggestion("  Что на сегодня?  ")).toBe("Что на сегодня?");
+    expect(tidySuggestion("Поручи ИТ доступ.")).toBe("Поручи ИТ доступ");
+    expect(tidySuggestion("")).toBe("");
+  });
+});
