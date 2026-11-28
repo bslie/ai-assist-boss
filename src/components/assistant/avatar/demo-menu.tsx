@@ -21,10 +21,10 @@ async function post(url: string, body: Json): Promise<{ ok: true; data: Json } |
 }
 
 /**
- * Меню демо по клику на маскота. Только для администратора (API это проверяет): действия пишут в БД руководителя
- * и тратят бюджет модели. Всё, что уходит наружу, идёт обычными путями через Policy Gate и карточки.
+ * Меню демо по клику на маскота (демо-стенд, доступно и руководителю в его кабинете). Действия пишут в БД руководителя
+ * и тратят бюджет модели; демо-часы общие для всех, поэтому они только у администратора. Всё, что уходит наружу, идёт обычными путями через Policy Gate и карточки.
  */
-export function DemoMenu({ leaderId, onClose }: { leaderId: string; onClose: () => void }) {
+export function DemoMenu({ leaderId, isAdmin, onClose }: { leaderId: string; isAdmin: boolean; onClose: () => void }) {
   const router = useRouter();
   const q = `leaderId=${encodeURIComponent(leaderId)}`;
   const [busy, setBusy] = useState<string | null>(null);
@@ -123,6 +123,7 @@ export function DemoMenu({ leaderId, onClose }: { leaderId: string; onClose: () 
         </div>
       </section>
 
+      {isAdmin && (
       <section className="flex flex-col gap-2">
         <div className="text-xs text-dim">Демо-часы</div>
         <div className="flex flex-wrap gap-2">
@@ -131,6 +132,7 @@ export function DemoMenu({ leaderId, onClose }: { leaderId: string; onClose: () 
           <Button variant="outline" className="h-8 rounded-full px-3" disabled={!!busy} onClick={() => clock("c0", "сброс", { reset: true })}>Сбросить</Button>
         </div>
       </section>
+      )}
 
       <div role="status" aria-live="polite" className={`min-h-5 text-[12.5px] ${status?.bad ? "text-coral" : "text-sage"}`}>{status?.text ?? ""}</div>
     </div>

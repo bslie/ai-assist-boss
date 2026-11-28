@@ -215,7 +215,8 @@ function Avatar({ name, fallback }: { name: string; fallback?: string }) {
   );
 }
 
-const EMPTY_FORM = { login: "", displayName: "", role: "LEADER" as "ADMIN" | "LEADER", leaderId: "", password: "", telegramId: "" };
+const NEW_LEADER = "__new__";
+const EMPTY_FORM = { login: "", displayName: "", role: "LEADER" as "ADMIN" | "LEADER", leaderId: NEW_LEADER, password: "", telegramId: "" };
 
 function Users({ viewerLogin }: { viewerLogin: string }) {
   const [query, setQuery] = useState("");
@@ -276,7 +277,8 @@ function Users({ viewerLogin }: { viewerLogin: string }) {
         login: form.login,
         displayName: form.displayName,
         role: form.role,
-        leaderId: form.leaderId || null,
+        leaderId: form.leaderId && form.leaderId !== NEW_LEADER ? form.leaderId : null,
+        newLeader: form.role === "LEADER" && form.leaderId === NEW_LEADER ? true : undefined,
         password: form.password || undefined,
         telegramId: form.telegramId || undefined,
       }),
@@ -442,8 +444,8 @@ function Users({ viewerLogin }: { viewerLogin: string }) {
           </label>
           <label className="flex flex-col gap-1 text-sm">
             <span className="text-dim">Руководитель {form.role === "LEADER" ? "(обязательно)" : "(необязательно)"}</span>
-            <select className={INPUT} required={form.role === "LEADER"} value={form.leaderId} onChange={(e) => setForm({ ...form, leaderId: e.target.value })}>
-              <option value="">—</option>
+            <select className={INPUT} required={form.role === "LEADER"} value={form.role === "LEADER" || form.leaderId !== NEW_LEADER ? form.leaderId : ""} onChange={(e) => setForm({ ...form, leaderId: e.target.value })}>
+              {form.role === "LEADER" ? <option value={NEW_LEADER}>Новый руководитель (чистый кабинет)</option> : <option value="">—</option>}
               {leaders.map((l) => (
                 <option key={l.id} value={l.id}>{l.name}</option>
               ))}

@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import { LeaderWizard } from "@/components/assistant/leader-wizard";
+import { LogoutButton } from "@/components/assistant/logout-button";
 import { ProfileImport } from "@/components/assistant/profile-import";
 import { ProfileText } from "@/components/assistant/profile-text";
 import { getCurrentUser } from "@/core/auth/current-user";
@@ -33,6 +34,9 @@ async function Profile() {
         <p className="mt-2 rounded-[18px] border border-line bg-sunken px-5 py-4 text-[15px] leading-relaxed text-soft">
           Чтобы что-то изменить, напишите мне в чате на странице «Разговор»: «добавь цель квартала…», «порог по деньгам 50 тысяч», «пиши мне короче». Я покажу, что поменяется, и запишу после вашего «да».
         </p>
+        <div className="pt-2">
+          <LogoutButton />
+        </div>
       </section>
 
       <section aria-labelledby="goals" className="flex flex-col gap-4">

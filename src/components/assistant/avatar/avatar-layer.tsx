@@ -58,7 +58,7 @@ function inside(p: Vec | null, r: DOMRect): boolean {
 //  2. Он никогда не перехватывает клики и фокус, обходит текст и кнопки, прячется за модалками.
 //  3. Если человек отошёл (IDLE_AFTER_MS без мыши, клавиатуры, кликов и прокрутки), он играет сценки
 //     с реквизитом. Любое действие пользователя мгновенно сворачивает сценку.
-export function AvatarLayer({ leaderId, demo = false }: { leaderId?: string; /** Администратор: клик по маскоту открывает меню управления демо. */ demo?: boolean }) {
+export function AvatarLayer({ leaderId, demo = false, isAdmin = false }: { leaderId?: string; /** Демо-стенд: клик по маскоту открывает меню управления демо. */ demo?: boolean; /** Администратор: в меню есть демо-часы (они общие для всех). */ isAdmin?: boolean }) {
   const [mounted, setMounted] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   // Чем сейчас занят воркер: пока фраза есть, маскот сидит с ноутбуком и подписывает, что делает.
@@ -894,7 +894,7 @@ export function AvatarLayer({ leaderId, demo = false }: { leaderId?: string; /**
         </div>
         {props && <div className={stageCls}>{props.front}</div>}
       </div>
-      {demo && menuOpen && leaderId && <DemoMenu leaderId={leaderId} onClose={() => setMenuOpen(false)} />}
+      {demo && menuOpen && leaderId && <DemoMenu leaderId={leaderId} isAdmin={isAdmin} onClose={() => setMenuOpen(false)} />}
     </>
   );
 }

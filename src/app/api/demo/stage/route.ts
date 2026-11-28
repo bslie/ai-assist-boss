@@ -37,13 +37,12 @@ const Body = z.discriminatedUnion("action", [
 ]);
 
 /**
- * `POST /api/demo/stage?leaderId=` — действия меню маскота для живого показа. Только администратор:
- * они пишут в БД руководителя и тратят бюджет модели. Любая внешняя мутация идёт через обычные пути (Policy Gate, карточки).
+ * `POST /api/demo/stage?leaderId=` — действия меню маскота для живого показа на демо-стенде. Доступно и руководителю,
+ * но только в его собственном кабинете (requireLeaderId): они пишут в его БД и тратят бюджет модели. Любая внешняя мутация идёт через обычные пути (Policy Gate, карточки).
  */
 export async function POST(req: Request) {
   const auth = await requireLeaderId(req);
   if (!auth.ok) return auth.res;
-  if (auth.user.role !== "ADMIN") return jsonError(403, "Нужна роль администратора");
   const body = await parseBody(req, Body);
   if (!body.ok) return body.res;
   const { leaderId } = auth;
