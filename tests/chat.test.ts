@@ -134,22 +134,56 @@ describe.skipIf(!dbUp)("чат (Postgres)", () => {
     expect(u.calls[0].system).toContain("MORNING_DIGEST");
   });
 
-  it("режим обучения из чата применяется сразу, защищённое не отпускается", async () => {
+  it("ослабление защиты из чата — только по кнопке; защищённое не отпускается; ужесточение сразу", async () => {
+    const leader = () => db.leader.findUniqueOrThrow({ where: { id: leaderId } });
+
+    // Выключение режима обучения предлагается кнопкой и само не применяется.
     const off = await handleChat(db, llmWith({ actions: [act("LEARNING", { learning: { mode: "OFF", scope: null, trusted: null } })] }).llm, leaderId, "выключи режим обучения");
-    expect(off.text).toContain("Режим обучения выключен");
     expect(off.text).toContain("Было:");
-    expect(off.actions).toBeUndefined(); // кнопки нет: уже применено
-    expect((await db.leader.findUniqueOrThrow({ where: { id: leaderId } })).learningMode).toBe(false);
+    expect(off.actions).toHaveLength(1);
+    expect((await leader()).learningMode).toBe(true);
+    // Нажатие кнопки идёт тем же PATCH /api/learning, что и страница.
+    const offAction = off.actions?.[0];
+    const { patchLearning, LearningPatchSchema } = await import("@/core/learning/mode");
+    expect(offAction && "patch" in offAction).toBe(true);
+    if (offAction && "patch" in offAction) expect((await patchLearning(db, leaderId, LearningPatchSchema.parse(offAction.patch.body))).ok).toBe(true);
+    expect((await leader()).learningMode).toBe(false);
 
+    // «Решай сама» тоже требует кнопки.
     const trust = await handleChat(db, llmWith({ actions: [act("LEARNING", { learning: { mode: null, scope: "TASK_ASSIGN", trusted: true } })] }).llm, leaderId, "поручения отправляй без меня");
-    expect(trust.actions).toBeUndefined();
-    expect((await db.leader.findUniqueOrThrow({ where: { id: leaderId } })).trustedScopes).toContain("TASK_ASSIGN");
+    expect(trust.actions).toHaveLength(1);
+    expect((await leader()).trustedScopes).not.toContain("TASK_ASSIGN");
 
+    // Защищённое не отпускается вовсе: ни применения, ни кнопки.
     const hr = await handleChat(db, llmWith({ actions: [act("LEARNING", { learning: { mode: null, scope: "HR", trusted: true } })] }).llm, leaderId, "кадры решай сама");
     expect(hr.actions).toBeUndefined();
     expect(hr.text).toContain("всегда согласую");
-    expect((await db.leader.findUniqueOrThrow({ where: { id: leaderId } })).trustedScopes).not.toContain("HR");
-    expect(await db.activityLog.count({ where: { leaderId, action: "CHAT_APPLIED" } })).toBeGreaterThanOrEqual(2); // каждое применённое — в журнале
+    expect((await leader()).trustedScopes).not.toContain("HR");
+
+    // Ужесточение («снова учись») применяется сразу и попадает в журнал.
+    const on = await handleChat(db, llmWith({ actions: [act("LEARNING", { learning: { mode: "ON", scope: null, trusted: null } })] }).llm, leaderId, "снова учись");
+    expect(on.actions).toBeUndefined();
+    expect((await leader()).learningMode).toBe(true);
+    expect(await db.activityLog.count({ where: { leaderId, action: "CHAT_APPLIED" } })).toBeGreaterThanOrEqual(1);
+  });
+
+  it("порог по деньгам из чата — кнопкой, значение не меняется до подтверждения; цель — сразу", async () => {
+    const before = (await db.leader.findUniqueOrThrow({ where: { id: leaderId } })).budgetAutoLimit;
+    // Агент выбирает profile.change; вторая модель (правка профиля) отвечает структурой с новым порогом.
+    const provider: LlmProvider = {
+      name: "fake",
+      model: "m",
+      async generate({ system }) {
+        const object = system.includes("КОНТЕКСТ")
+          ? { answer: "", call: null, actions: [{ tool: "profile.change", argsJson: JSON.stringify({ instruction: "порог по деньгам 50 тысяч" }) }] }
+          : { goals: null, stylePrompt: null, budgetAutoLimit: 50000 };
+        return { object, promptTokens: 1, completionTokens: 1 };
+      },
+    };
+    const budget = await handleChat(db, new LlmClient({ provider, cache: new MemoryCache() }), leaderId, "порог по деньгам 50 тысяч");
+    expect(budget.text).toContain("Порог по деньгам");
+    expect(budget.actions).toHaveLength(1);
+    expect((await db.leader.findUniqueOrThrow({ where: { id: leaderId } })).budgetAutoLimit).toBe(before);
   });
 
   it("рутина из чата применяется сразу; неизвестная рутина — отказ без изменений", async () => {

@@ -16,7 +16,21 @@ import type { ChatAction } from "./chat";
 export type ApplyResult = { ok: true; done: string } | { ok: false; message: string };
 
 type ApplicableAction = Exclude<ChatAction, { resolve: unknown }>;
-export const isApplicable = (a: ChatAction): a is ApplicableAction => !("resolve" in a);
+
+/**
+ * Изменения, которые ослабляют защиту, руководитель подтверждает кнопкой даже в чате (SPEC 1.1: «изменение лимита всегда
+ * с подтверждением»): порог по деньгам, выключение режима обучения, «решай сама». Письмо или текст в почте не должны
+ * через агента молча снять защиту. Ужесточения (включить обучение, «верни мне», сменить цель) применяются сразу.
+ */
+export function needsConfirmation(a: ApplicableAction): boolean {
+  if (!("patch" in a)) return false;
+  const body = a.patch.body as Record<string, unknown>;
+  if (a.patch.path === "/api/profile") return body.budgetAutoLimit !== undefined;
+  if (a.patch.path === "/api/learning") return (body.kind === "mode" && body.enabled === false) || (body.kind === "trust" && body.trusted === true);
+  return false;
+}
+
+export const isApplicable = (a: ChatAction): a is ApplicableAction => !("resolve" in a) && !needsConfirmation(a);
 
 export async function applyAction(db: PrismaClient, leaderId: string, a: ApplicableAction): Promise<ApplyResult> {
   const result = await run(db, leaderId, a);
