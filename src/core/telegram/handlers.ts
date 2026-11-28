@@ -120,7 +120,7 @@ export async function handleCallback(deps: Deps, input: CallbackInput): Promise<
     }
     case "b": {
       const [card] = await buildDecisionCards(deps.db, d.leaderId, [d]);
-      await deps.messenger.edit(input.chatId, input.messageId, cardText(card), cardButtons(id, d.type));
+      await deps.messenger.edit(input.chatId, input.messageId, cardText(card), cardButtons(id, d.type, d.draftText));
       return "Ок";
     }
     default:

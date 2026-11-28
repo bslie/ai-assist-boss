@@ -74,3 +74,18 @@ describe("подсказки чата: единый вид кнопок", () => 
     expect(tidySuggestion("")).toBe("");
   });
 });
+
+describe("Telegram: карточка с пропуском не даёт утвердить", () => {
+  it("кнопки без «Утвердить» и предупреждение в тексте; без пропуска всё как раньше", async () => {
+    const { cardButtons, cardText } = await import("@/core/telegram/cards");
+    const flat = (b: ReturnType<typeof cardButtons>) => b.flat().map((x) => x.text);
+    expect(flat(cardButtons("d1", "EMAIL_REPLY", "Ответ в [срок]."))).not.toContain("Утвердить");
+    expect(flat(cardButtons("d1", "EMAIL_REPLY", "Ответ в [срок]."))).toContain("Поправить");
+    expect(flat(cardButtons("d1", "EMAIL_REPLY", "Ответ в пятницу."))).toContain("Утвердить");
+    expect(flat(cardButtons("d1", "MEETING_PROTOCOL", "- [ ] пункт"))).toContain("Утвердить: всем");
+
+    const card = { tag: "Решение", from: "", when: "", title: "Тест", summary: "", draft: "Ответ в [срок].", reasons: [], reminderCount: 0, type: "EMAIL_REPLY" };
+    expect(cardText(card as never)).toContain("остался пропуск [срок]");
+    expect(cardText({ ...card, draft: "Ответ в пятницу." } as never)).not.toContain("пропуск");
+  });
+});

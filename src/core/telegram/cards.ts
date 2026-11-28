@@ -4,6 +4,7 @@
  */
 import type { PrismaClient } from "@/generated/prisma/client";
 import { buildDecisionCards, type DecisionCard } from "../dashboard";
+import { findPlaceholders } from "../draft-placeholders";
 import { esc, type Button, type Messenger } from "./types";
 
 const STATUS_TEXT: Record<string, string> = {
@@ -22,13 +23,16 @@ export function cardText(c: DecisionCard): string {
     `<b>${esc(c.title)}</b>`,
     esc(c.summary),
     c.draft ? `\nЧто я предлагаю:\n<i>${esc(c.draft)}</i>` : null,
+    c.type !== "MEETING_PROTOCOL" && findPlaceholders(c.draft).length
+      ? `\n⚠ В черновике остался пропуск ${esc(findPlaceholders(c.draft).join(", "))}. Нажмите «Поправить» и впишите значение: с пропуском письмо не уйдёт.`
+      : null,
     c.reasons.length ? `\nПочему спрашиваю: ${esc(c.reasons.join("; "))}` : null,
   ];
   return lines.filter((l): l is string => l !== null).join("\n");
 }
 
 /** У протокола два варианта утверждения: разослать всем участникам или только исполнителям из протокола. */
-export const cardButtons = (id: string, type?: string): Button[][] => [
+export const cardButtons = (id: string, type?: string, draft?: string | null): Button[][] => [
   ...(type === "MEETING_PROTOCOL"
     ? [
         [
@@ -37,12 +41,15 @@ export const cardButtons = (id: string, type?: string): Button[][] => [
         ],
         [{ text: "Поправить", data: `d:e:${id}` }],
       ]
-    : [
-        [
-          { text: "Утвердить", data: `d:a:${id}` },
-          { text: "Поправить", data: `d:e:${id}` },
-        ],
-      ]),
+    : findPlaceholders(draft).length
+      ? // Пропуск «[срок]»: утвердить нельзя, пока руководитель не впишет значение.
+        [[{ text: "Поправить", data: `d:e:${id}` }]]
+      : [
+          [
+            { text: "Утвердить", data: `d:a:${id}` },
+            { text: "Поправить", data: `d:e:${id}` },
+          ],
+        ]),
   [
     { text: "Передать", data: `d:d:${id}` },
     { text: "Не сейчас", data: `d:s:${id}` },
@@ -70,7 +77,7 @@ export async function sendDecisionCard(db: PrismaClient, m: Messenger, leaderId:
   const [card] = await buildDecisionCards(db, leaderId, [d]);
   let first: string | null = null;
   for (const chatId of chats) {
-    const { messageId } = await m.send(chatId, cardText(card), cardButtons(d.id, d.type));
+    const { messageId } = await m.send(chatId, cardText(card), cardButtons(d.id, d.type, d.draftText));
     first ??= ref(chatId, messageId);
   }
   // Условная запись: гонка двух воркеров не затрёт уже сохранённую ссылку.
@@ -85,7 +92,7 @@ export async function refreshDecisionCard(db: PrismaClient, m: Messenger, leader
   if (!d || !target) return false;
   const [card] = await buildDecisionCards(db, leaderId, [d]);
   if (d.status === "PENDING") {
-    await m.edit(target.chatId, target.messageId, cardText(card), cardButtons(d.id, d.type));
+    await m.edit(target.chatId, target.messageId, cardText(card), cardButtons(d.id, d.type, d.draftText));
   } else {
     await m.edit(target.chatId, target.messageId, `${cardText(card)}\n\n<b>${esc(STATUS_TEXT[d.status] ?? d.status)}</b>`);
   }
