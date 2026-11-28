@@ -66,7 +66,7 @@ async function Metrics() {
           <Stat
             label="Стоит освобождённое время"
             value={roi.savedRub === null ? `${Math.round(roi.savedMinutes)} мин` : rub(roi.savedRub)}
-            note={roi.hourRateRub === null ? "Ставка часа не задана: STAFF_HOUR_RATE_RUB или hourRateRub в профиле." : `${Math.round(roi.savedMinutes)} мин по ставке ${rub(roi.hourRateRub)} за час.`}
+            note={roi.hourRateRub === null ? "Ставка часа сотрудника пока не задана: рубли появятся, когда администратор её укажет." : `${Math.round(roi.savedMinutes)} мин по ставке ${rub(roi.hourRateRub)} за час.`}
           />
           <Stat label="Один запрос к ИИ" value={roi.perRequestStaffMinutes === null ? "—" : `${String(roi.perRequestStaffMinutes).replace(".", ",")} мин`} note="Столько минут работы сотрудника стоит одно обращение." />
           <Stat label="Сэкономлено на 1 ₽ затрат" value={roi.ratio === null ? "—" : `${String(roi.ratio).replace(".", ",")} ₽`} />

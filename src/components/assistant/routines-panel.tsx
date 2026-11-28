@@ -30,7 +30,7 @@ export function RoutineList({ leaderId, routines }: { leaderId: string; routines
     router.refresh();
   }
 
-  if (routines.length === 0) return <p className="text-dim">Рутин нет: они приходят из профиля.</p>;
+  if (routines.length === 0) return <p className="text-dim">Рутин пока нет. Они появятся, когда в «Профиле» загрузят профиль руководителя: утренний план, итог недели и контроль сроков.</p>;
   return (
     <>
       <ul className="flex flex-col gap-3">

@@ -93,7 +93,7 @@ async function Today() {
             </div>
           </section>
           <section aria-label="Решения" className="rise" style={{ "--d": "2100ms" } as CSSProperties}>
-            <DecisionStack leaderId={leader.id} decisions={today.decisions} delegates={delegates} />
+            <DecisionStack leaderId={leader.id} decisions={today.decisions} delegates={delegates} firstRun={!readiness.mail && !readiness.calendar && headline.total === 0 && today.decisions.length === 0} />
           </section>
         </main>
 

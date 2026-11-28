@@ -20,7 +20,7 @@ const fmt = (iso: string) =>
   new Intl.DateTimeFormat("ru-RU", { timeZone: "Europe/Moscow", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
 
 export function TaskList({ tasks }: { tasks: TaskRow[] }) {
-  if (tasks.length === 0) return <p className="text-dim">Поручений пока нет.</p>;
+  if (tasks.length === 0) return <p className="text-dim">Поручений пока нет. Поставьте первое формой выше или скажите в «Разговоре»: «поручи Ольге подготовить КП до пятницы».</p>;
   return (
     <ul className="flex flex-col gap-3">
       {tasks.map((t) => (

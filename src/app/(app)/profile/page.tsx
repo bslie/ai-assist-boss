@@ -64,7 +64,7 @@ async function Profile() {
       <section aria-labelledby="rhythm" className="flex flex-col gap-4">
         <h2 id="rhythm" className="font-serif text-2xl font-medium">Ритм</h2>
         {routines.length === 0 ? (
-          <p className="text-dim">Рутин нет.</p>
+          <p className="text-dim">Пока нет: утренний план и итог недели появятся после загрузки профиля ниже.</p>
         ) : (
           <ul className="flex flex-col rounded-[18px] border border-line bg-sunken">
             {routines.map((r) => (

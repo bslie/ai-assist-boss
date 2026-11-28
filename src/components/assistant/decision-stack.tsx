@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
+import Link from "next/link";
+import { ArrowRight } from "lucide-react";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { findPlaceholders } from "@/core/draft-placeholders";
 import { cn } from "@/lib/utils";
 import { DraftText } from "./draft-text";
@@ -31,7 +33,7 @@ const doneText = (action: unknown, type: string): string =>
 const exitFor = (action: unknown): Exit => (action === "APPROVE" || action === "EDITED_APPROVED" ? "approve" : action === "DELEGATE" ? "delegate" : "snooze");
 
 /** Стопка карточек решений. Действия уходят в POST /api/decisions/[id]/resolve. */
-export function DecisionStack({ leaderId, decisions, delegates }: { leaderId: string; decisions: DecisionCard[]; delegates: Delegate[] }) {
+export function DecisionStack({ leaderId, decisions, delegates, firstRun = false }: { leaderId: string; decisions: DecisionCard[]; delegates: Delegate[]; /** Ничего не подключено и писем ещё не было: вместо «очередь пуста» зовём подключить почту и календарь (SPEC 1.1, п. 3). */ firstRun?: boolean }) {
   // Локально скрываем уже решённые, пока сервер не пришлёт обновлённый список (SSE → refresh).
   const [done, setDone] = useState<Set<string>>(new Set());
   const [mode, setMode] = useState<Mode>("idle");
@@ -102,6 +104,21 @@ export function DecisionStack({ leaderId, decisions, delegates }: { leaderId: st
       {notice}
     </div>
   ) : null;
+
+  if (!cur && firstRun) {
+    return (
+      <div className={cn("flex flex-col gap-4 rounded-[22px] border border-amber/40 bg-raised p-5 sm:p-7", firstId !== undefined && "card-in")}>
+        <div className="font-serif text-[26px] font-medium leading-tight sm:text-[28px]">Подключите почту и календарь, и я начну работать.</div>
+        <p className="text-soft">
+          Пока мне нечего разбирать. Письма и встречи придут сюда карточками. Сначала я только читаю: ничего не отправляю и не меняю без вашего «да».
+        </p>
+        <Link href="/connectors" className={cn(buttonVariants(), "h-12 self-start rounded-full px-6 text-[15px] font-semibold")}>
+          Подключить почту и календарь
+          <ArrowRight aria-hidden className="size-4" />
+        </Link>
+      </div>
+    );
+  }
 
   if (!cur) {
     return (

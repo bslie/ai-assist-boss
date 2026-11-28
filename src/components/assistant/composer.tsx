@@ -118,7 +118,8 @@ export function Composer({ leaderId, children }: { leaderId: string; /** Под 
     const saved = loadChat(storeKey);
     if (saved) {
       setMsgs(saved.msgs);
-      setOpen(saved.open);
+      // Переписка возвращается свёрнутой: раскрытая панель закрывала бы карточку решения, на которую человек пришёл.
+      setOpen(false);
     }
     restored.current = true;
   }, [storeKey]);
