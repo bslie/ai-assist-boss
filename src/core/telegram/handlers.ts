@@ -371,7 +371,7 @@ export async function handleText(deps: Deps, chatId: string, text: string, opts:
     if (!task || !task.assignee) return "Не могу передать вопрос: нет доступа к задаче.";
     const body = text.trim();
     if (!body) return "Текст пустой, вопрос не передала.";
-    await notifyLeader(deps, task.leaderId, `Вопрос от ${esc(task.assignee.name)} по задаче «${esc(task.title)}»:\n${esc(body)}`);
+    await notifyLeader(deps, task.leaderId, `Вопрос по задаче «${esc(task.title)}», ${esc(task.assignee.name)}:\n${esc(body)}`);
     return "Передала ваш вопрос руководителю.";
   }
   if (pending) {

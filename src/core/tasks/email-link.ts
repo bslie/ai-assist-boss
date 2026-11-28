@@ -115,7 +115,7 @@ export async function answerTaskByLink(db: PrismaClient, token: string, input: T
 
   if (input.action === "clarify") {
     await log("TASK_QUESTION", `${who} спрашивает по задаче «${task.title}»: ${input.question}`, { question: input.question });
-    await tellLeader(`Вопрос от ${who} по задаче «${task.title}»:\n${input.question}`);
+    await tellLeader(`Вопрос по задаче «${task.title}», ${who}:\n${input.question}`);
     return { ok: true, message: "Передала ваш вопрос руководителю." };
   }
 

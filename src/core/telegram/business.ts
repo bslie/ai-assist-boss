@@ -127,7 +127,7 @@ export async function handleBusinessMessage(deps: BusinessDeps, m: BusinessIncom
       leaderId,
       createdAt: clock.now(),
       type: "EMAIL_REPLY",
-      title: `Сообщение от ${emp.name}`,
+      title: `Сообщение: ${emp.name}`,
       contextSummary: text,
       gateReasons: ["Не удалось разобрать сообщение автоматически"],
       aiRecommendation: "Спросить руководителя",

@@ -336,7 +336,8 @@ describe.skipIf(!dbUp)("поручения сотрудникам через Pol
       await press(deps, chat("E"), `t:c:${t.id}`);
       expect(await handleText(deps, chat("E"), "Какой <срок> реален?")).toContain("Передала");
       const msg = sent.find((s) => s.chatId === chat("L"));
-      expect(msg?.text).toContain("Вопрос от Ольга Смирнова");
+      expect(msg?.text).toContain("Вопрос по задаче");
+      expect(msg?.text).toContain("Ольга Смирнова");
       expect(msg?.text).toContain("Какой &lt;срок&gt; реален?");
       expect((await db.task.findUniqueOrThrow({ where: { id: t.id } })).status).toBe("NEW");
     });

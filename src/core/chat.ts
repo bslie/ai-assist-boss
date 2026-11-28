@@ -323,7 +323,7 @@ async function addTask(db: PrismaClient, llm: LlmClient, leaderId: string, task:
     gate.learningMode && !gate.trustedScopes.includes(TASK_ASSIGN_SCOPE)
       ? "Пока я учусь, сама его не отправляю: поручение придёт вам карточкой «Отправить поручение»."
       : "Исполнитель получит его в Telegram, а если бот не подключён — письмом со ссылкой для ответа.";
-  return { text: `Поставила задачу «${task.title}» для ${hits[0].name}. Критерий готовности сформулировала. ${delivery}` };
+  return { text: `Поставила задачу «${task.title}», исполнитель: ${hits[0].name}. Критерий готовности сформулировала. ${delivery}` };
 }
 
 /** Режим обучения из чата: только предложение с кнопкой; защищённое не отпускается (SPEC 1.1). */
