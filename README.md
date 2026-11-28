@@ -41,6 +41,7 @@ npm run worker                       # Telegram, рутины, почта (от�
 | `DATABASE_URL`, `REDIS_URL` | Postgres и Redis (Redis — демо-часы, шина событий, блокировки) |
 | `AUTH_SECRET`, `CONNECTOR_SECRET` | подпись сессий и шифрование доступов подключений (`openssl rand -hex 32`) |
 | `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` | любой OpenAI-совместимый эндпоинт (GigaChat, YandexGPT, vLLM, Ollama меняются только этим). Без `LLM_BASE_URL` модель отвечает из кэша |
+| `LLM_REASONING` | `off` / `low` / `medium` / `high` / `default`: рассуждение модели. Рассуждающие модели (qwen3.x) тратят тысячи токенов на «размышления» даже при коротком ответе, протокол встречи шёл ~90 с. Не задано: для OpenRouter `off` (ответ за секунды), для остальных эндпоинтов параметр не передаётся |
 | `LLM_PRICE_INPUT_RUB_PER_M`, `LLM_PRICE_OUTPUT_RUB_PER_M` | цены для расчёта стоимости запроса; не заданы → в учёте токены, стоимость 0 |
 | `STAFF_HOUR_RATE_RUB` | ставка часа сотрудника для окупаемости: затраты на ИИ против освобождённого времени (профиль может переопределить: `savedMinutesConfig.hourRateRub`) |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `TELEGRAM_BIND_KEY` | бот и привязка чатов |

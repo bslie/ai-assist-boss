@@ -13,12 +13,37 @@ export function llmTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
   return Number.isFinite(n) && n >= 1000 ? n : 90_000;
 }
 
+/**
+ * Рассуждение модели. Рассуждающие модели (qwen3.x и подобные) тратят тысячи токенов «размышлений» даже на короткий
+ * структурный ответ: протокол встречи шёл 90 с и упирался в лимит, разбор почты и чат были в разы дольше и дороже.
+ * `LLM_REASONING`: `off` — без рассуждения, `low|medium|high` — усилие, `default` — не передавать параметр.
+ * Не задано: для OpenRouter — `off`, для остальных эндпоинтов параметр не передаётся (он у них может не поддерживаться).
+ * Параметр уходит в тело запроса как `reasoning` (формат OpenRouter).
+ */
+export function reasoningOptionsFromEnv(env: NodeJS.ProcessEnv = process.env): Record<string, unknown> | undefined {
+  const raw = (env.LLM_REASONING ?? "").trim().toLowerCase();
+  const onOpenRouter = /(^|\.)openrouter\.ai$/i.test(safeHost(env.LLM_BASE_URL));
+  const mode = raw || (onOpenRouter ? "off" : "default");
+  if (mode === "off" || mode === "none" || mode === "false" || mode === "0") return { reasoning: { enabled: false } };
+  if (mode === "low" || mode === "medium" || mode === "high") return { reasoning: { effort: mode } };
+  return undefined;
+}
+
+function safeHost(url: string | undefined): string {
+  try {
+    return url ? new URL(url).hostname : "";
+  } catch {
+    return "";
+  }
+}
+
 export function createProviderFromEnv(env: NodeJS.ProcessEnv = process.env): LlmProvider {
   const baseURL = env.LLM_BASE_URL;
   const model = env.LLM_MODEL;
   if (!baseURL || !model) throw new Error("LLM_BASE_URL and LLM_MODEL must be set");
   const name = env.LLM_PROVIDER_NAME ?? "openai-compatible";
   const timeoutMs = llmTimeoutMs(env);
+  const reasoning = reasoningOptionsFromEnv(env);
   // Без supportsStructuredOutputs схема не уходит в запрос (json_object), и модель выдумывает имена полей.
   // LLM_STRUCTURED_OUTPUTS=0 отключает для эндпоинтов без json_schema.
   const client = createOpenAICompatible({
@@ -33,7 +58,15 @@ export function createProviderFromEnv(env: NodeJS.ProcessEnv = process.env): Llm
     model,
     async generate({ system, prompt, schema, temperature }) {
       // Зависший эндпоинт не должен вешать карточку или страницу навсегда: общий лимит на вызов вместе с повторами.
-      const result = await generateObject({ model: client(model), schema, system, prompt, temperature, abortSignal: AbortSignal.timeout(timeoutMs) });
+      const result = await generateObject({
+        model: client(model),
+        schema,
+        system,
+        prompt,
+        temperature,
+        abortSignal: AbortSignal.timeout(timeoutMs),
+        ...(reasoning ? { providerOptions: { [name]: reasoning as never } } : {}),
+      });
       return {
         object: result.object,
         promptTokens: result.usage?.inputTokens ?? 0,
