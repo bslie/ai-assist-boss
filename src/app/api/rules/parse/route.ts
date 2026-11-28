@@ -9,6 +9,7 @@ import { createProviderOrReplay } from "@/core/llm/providers";
 import { dbUsageSink } from "@/core/llm/usage-db";
 import { db } from "@/db/client";
 import { jsonError, parseBody, requireLeaderId } from "@/lib/http";
+import { friendlyLlmError } from "@/lib/llm-error";
 
 export const maxDuration = 60;
 
@@ -46,6 +47,6 @@ export async function POST(req: Request) {
     const saved = await saveRuleProposal(db, auth.leaderId, res.proposal, { weekOnly: body.data.confirm === "week" });
     return saved.ok ? NextResponse.json({ ok: true, saved: true, id: saved.value.id }, { status: 201 }) : jsonError(403, saved.message);
   } catch (e) {
-    return jsonError(502, `Не смогла разобрать: ${(e as Error).message}`);
+    return jsonError(502, friendlyLlmError(e));
   }
 }

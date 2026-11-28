@@ -9,6 +9,7 @@ import { dbUsageSink } from "@/core/llm/usage-db";
 import { rememberOrigin } from "@/core/meetings/recall";
 import { db } from "@/db/client";
 import { jsonError, parseBody, requireLeaderId } from "@/lib/http";
+import { friendlyLlmError } from "@/lib/llm-error";
 import { requestOrigin } from "@/lib/origin";
 
 export const maxDuration = 300; // «проверь почту» разбирает письма живой моделью
@@ -44,7 +45,7 @@ export async function POST(req: Request) {
     try {
       return NextResponse.json(await handleChat(db, llm, auth.leaderId, body.data.text, body.data.history));
     } catch (e) {
-      return jsonError(502, `Не смогла разобрать: ${(e as Error).message}`);
+      return jsonError(502, friendlyLlmError(e));
     }
   }
 
@@ -56,7 +57,7 @@ export async function POST(req: Request) {
         const reply = await handleChat(db, llm, auth.leaderId, body.data.text, body.data.history, (p) => send({ type: "progress", text: p.text }));
         send({ type: "reply", reply });
       } catch (e) {
-        send({ type: "error", error: `Не смогла разобрать: ${(e as Error).message}` });
+        send({ type: "error", error: friendlyLlmError(e) });
       } finally {
         controller.close();
       }

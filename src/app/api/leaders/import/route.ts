@@ -7,6 +7,7 @@ import { applyProfile, diffProfile, importProfile } from "@/core/profile";
 import { deleteDraft, saveDraft, takeDraft } from "@/core/profile/draft-store";
 import { db } from "@/db/client";
 import { jsonError, parseBody, requireLeaderId } from "@/lib/http";
+import { friendlyLlmError } from "@/lib/llm-error";
 import path from "node:path";
 
 export const maxDuration = 120;
@@ -50,6 +51,6 @@ export async function POST(req: Request) {
     const draftId = await saveDraft({ leaderId: auth.leaderId, markdown: body.data.markdown, draft });
     return NextResponse.json({ draftId, draft, warnings, diff });
   } catch (e) {
-    return jsonError(502, `Импорт профиля не удался: ${(e as Error).message}`);
+    return jsonError(502, `Импорт профиля не удался. ${friendlyLlmError(e)}`);
   }
 }

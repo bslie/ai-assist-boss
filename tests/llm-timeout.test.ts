@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { llmTimeoutMs, reasoningOptionsFromEnv } from "@/core/llm/providers";
 
 describe("лимит вызова модели", () => {
@@ -25,5 +25,19 @@ describe("рассуждение модели (LLM_REASONING)", () => {
     expect(reasoningOptionsFromEnv(env({ LLM_BASE_URL: or, LLM_REASONING: "low" }))).toEqual({ reasoning: { effort: "low" } });
     expect(reasoningOptionsFromEnv(env({ LLM_BASE_URL: "http://vllm/v1", LLM_REASONING: "off" }))).toEqual({ reasoning: { enabled: false } });
     expect(reasoningOptionsFromEnv(env({ LLM_BASE_URL: or, LLM_REASONING: "что-то" }))).toBeUndefined();
+  });
+});
+
+describe("ошибка модели для руководителя", () => {
+  it("сырой текст провайдера превращается в понятную фразу", async () => {
+    const { friendlyLlmError } = await import("@/lib/llm-error");
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    expect(friendlyLlmError(new Error("The operation was aborted due to timeout"))).toContain("слишком долго");
+    expect(friendlyLlmError(new Error("429 Rate limit exceeded"))).toContain("перегружена");
+    expect(friendlyLlmError(new Error("401 Unauthorized: invalid api key"))).toContain("Нет доступа");
+    expect(friendlyLlmError(new Error("fetch failed"))).toContain("Нет связи");
+    const other = friendlyLlmError(new Error("zod: invalid_type at answer"));
+    expect(other).not.toMatch(/zod|invalid_type/);
+    quiet.mockRestore();
   });
 });
