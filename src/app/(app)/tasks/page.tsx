@@ -5,6 +5,8 @@ import { listTasks } from "@/core/tasks/registry";
 import { db } from "@/db/client";
 import { getCurrentLeader } from "@/lib/current-leader";
 
+export const metadata = { title: "Поручения · ИИ-помощник руководителя" };
+
 async function Tasks() {
   const leader = await getCurrentLeader();
   if (!leader) return <p className="text-dim">Руководитель ещё не создан. Запустите <code>npm run db:seed</code>.</p>;

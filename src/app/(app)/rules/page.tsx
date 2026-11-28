@@ -12,6 +12,8 @@ import { TASK_ASSIGN_SCOPE } from "@/core/tasks/dispatch";
 import { db } from "@/db/client";
 import { getCurrentLeader } from "@/lib/current-leader";
 
+export const metadata = { title: "Как я работаю · ИИ-помощник руководителя" };
+
 const Label = ({ color, children, id }: { color: string; children: React.ReactNode; id: string }) => (
   <div id={id} className="flex items-center gap-2.5 text-[13px] font-semibold" style={{ color }}>
     <span className="size-2.5 rounded-full" style={{ background: color }} />

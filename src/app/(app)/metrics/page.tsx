@@ -6,6 +6,8 @@ import { getCostReport, getRoiReport } from "@/core/usage";
 import { db } from "@/db/client";
 import { getCurrentLeader } from "@/lib/current-leader";
 
+export const metadata = { title: "Метрики · ИИ-помощник руководителя" };
+
 /** Внутренние названия конвейеров → понятные пользователю. */
 const PIPELINE_LABELS: Record<string, string> = {
   EMAIL_TRIAGE: "Разбор входящей почты",

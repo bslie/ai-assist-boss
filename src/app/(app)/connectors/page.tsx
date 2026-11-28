@@ -5,6 +5,8 @@ import { listCatalog } from "@/core/connectors/service";
 import { db } from "@/db/client";
 import { getCurrentLeader } from "@/lib/current-leader";
 
+export const metadata = { title: "Подключения · ИИ-помощник руководителя" };
+
 async function Catalog({ searchParams }: { searchParams: Promise<{ connected?: string; error?: string }> }) {
   const leader = await getCurrentLeader();
   if (!leader) return <div className="text-dim">Руководитель ещё не создан. Запустите <code>npm run db:seed</code>.</div>;

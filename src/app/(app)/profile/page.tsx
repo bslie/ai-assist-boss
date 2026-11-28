@@ -7,6 +7,8 @@ import { describeCron } from "@/core/routines";
 import { db } from "@/db/client";
 import { getCurrentLeader } from "@/lib/current-leader";
 
+export const metadata = { title: "Профиль · ИИ-помощник руководителя" };
+
 async function Profile() {
   const [leader, user] = await Promise.all([getCurrentLeader(), getCurrentUser()]);
   if (!leader) return <p className="text-dim">Руководитель ещё не создан. Запустите <code>npm run db:seed</code>.</p>;

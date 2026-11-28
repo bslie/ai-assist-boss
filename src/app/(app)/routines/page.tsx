@@ -4,6 +4,8 @@ import { describeCron, listRoutines } from "@/core/routines";
 import { db } from "@/db/client";
 import { getCurrentLeader } from "@/lib/current-leader";
 
+export const metadata = { title: "Рутины · ИИ-помощник руководителя" };
+
 async function Routines() {
   const leader = await getCurrentLeader();
   if (!leader) return <p className="text-dim">Руководитель ещё не создан. Запустите <code>npm run db:seed</code>.</p>;
